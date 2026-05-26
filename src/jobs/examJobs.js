@@ -4,7 +4,6 @@ import { Exam } from "../modules/exams/exam.model.js";
 import { AntiCheatLog } from "../modules/anti-cheat/antiCheatLog.model.js";
 import { AuditLog } from "../modules/audit-logs/auditLog.model.js";
 import { finalizeAttempt } from "../modules/attempts/attempt.service.js";
-import { sendExamStartReminderEmail } from "../emails/email.service.js";
 
 export const startExamJobs = () => startJobWorker(async (job) => {
   if (job.name === "expire-attempt") {
@@ -15,8 +14,7 @@ export const startExamJobs = () => startJobWorker(async (job) => {
     await AuditLog.create({ action: "ATTEMPT_AUTO_SUBMITTED", resourceType: "ExamAttempt", resourceId: updated._id, description: "Timer-expiry worker submitted attempt." });
   }
   if (job.name === "exam-reminder") {
-    const exam = await Exam.findById(job.data.examId).populate("assignedCandidates");
-    if (!exam || !["SCHEDULED", "ACTIVE"].includes(exam.status)) return;
-    await Promise.all(exam.assignedCandidates.map((candidate) => sendExamStartReminderEmail(candidate, exam)));
+    const exam = await Exam.findById(job.data.examId);
+    if (!exam || !["PUBLISHED", "SCHEDULED", "ACTIVE"].includes(exam.status)) return;
   }
 });

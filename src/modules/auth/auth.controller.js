@@ -18,6 +18,10 @@ export const login = asyncHandler(async (req, res) => {
   const { refreshToken, ...data } = await service.login(req, req.body);
   setRefreshCookie(res, refreshToken).json(new ApiResponse("Login successful.", data));
 });
+export const registerExaminer = asyncHandler(async (req, res) => {
+  const user = await service.registerExaminer(req, req.body);
+  res.status(201).json(new ApiResponse("Examiner account created successfully.", user));
+});
 export const refresh = asyncHandler(async (req, res) => {
   enforceCsrf(req);
   const { refreshToken, ...data } = await service.refresh(req.cookies[env.REFRESH_COOKIE_NAME]);

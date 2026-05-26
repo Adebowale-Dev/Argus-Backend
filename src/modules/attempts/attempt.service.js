@@ -8,6 +8,8 @@ import { scheduleExpiry } from "../../config/queue.js";
 import { recordAudit } from "../audit-logs/auditLog.service.js";
 import { sendExamSubmittedEmail } from "../../emails/email.service.js";
 import { emitExamEvent } from "../../sockets/emitter.js";
+import { paginationMeta, paginationParams } from "../../utils/pagination.js";
+import { hashToken, verifyAttemptToken } from "../../utils/generateToken.js";
 
 const shuffle = (items) => {
   const result = [...items];
@@ -17,8 +19,28 @@ const shuffle = (items) => {
   }
   return result;
 };
-const ownedAttempt = async (id, candidateId) => {
-  const attempt = await ExamAttempt.findOne({ _id: id, candidate: candidateId });
+const isAssignedExamOpen = (exam, now = new Date()) => {
+  if (!["PUBLISHED", "ACTIVE", "SCHEDULED"].includes(exam.status)) return false;
+  if (exam.startTime && now < exam.startTime) return false;
+  if (exam.endTime && now > exam.endTime) return false;
+  return true;
+};
+const tokenFromRequest = (req) => req.get("x-attempt-token");
+const ownedAttempt = async (req, id) => {
+  if (req.user?.role === ROLES.CANDIDATE) {
+    const attempt = await ExamAttempt.findOne({ _id: id, $or: [{ candidate: req.user._id }, { candidateUser: req.user._id }] });
+    if (!attempt) throw new ApiError(404, "Attempt not found.");
+    return attempt;
+  }
+  const attemptToken = tokenFromRequest(req);
+  if (attemptToken) {
+    const payload = verifyAttemptToken(attemptToken);
+    if (payload.sub !== id) throw new ApiError(403, "Attempt token does not match this attempt.");
+    const attempt = await ExamAttempt.findById(id).select("+attemptTokenHash");
+    if (!attempt || attempt.attemptTokenHash !== hashToken(attemptToken)) throw new ApiError(403, "Invalid attempt token.");
+    return attempt;
+  }
+  const attempt = await ExamAttempt.findOne({ _id: id, candidate: req.user?._id });
   if (!attempt) throw new ApiError(404, "Attempt not found.");
   return attempt;
 };
@@ -37,23 +59,53 @@ const checkExpiry = async (req, attempt) => {
     throw new ApiError(409, "The examination time has expired and the attempt was submitted.");
   }
 };
-export const candidateExams = (user, query) => import("../exams/exam.service.js").then(({ list }) => list(user, query));
+export const candidateExams = async (user, query) => {
+  const { page, limit, skip, sort } = paginationParams(query);
+  const filter = { assignedCandidates: user._id, status: { $in: ["PUBLISHED", "ACTIVE", "SCHEDULED"] } };
+  const [data, total] = await Promise.all([
+    Exam.find(filter).select("title code description instructions durationMinutes startTime endTime status antiCheatSettings").sort(sort).skip(skip).limit(limit),
+    Exam.countDocuments(filter),
+  ]);
+  return { data, meta: paginationMeta(page, limit, total) };
+};
+export const list = async (user, query) => {
+  const { page, limit, skip, sort } = paginationParams(query);
+  const filter = {};
+  if (user.role === ROLES.SUB_ADMIN && !user.permissions.includes(PERMISSIONS.VIEW_REPORTS)) throw new ApiError(403, "Required report permission is missing.");
+  if (user.role === ROLES.EXAMINER) {
+    const examIds = (await Exam.find({ createdBy: user._id }).select("_id")).map((exam) => exam._id);
+    filter.exam = { $in: examIds };
+    filter.owner = user._id;
+    if (query.exam && !examIds.some((examId) => String(examId) === query.exam)) throw new ApiError(403, "You cannot view attempts for this exam.");
+  }
+  if (query.exam) filter.exam = query.exam;
+  if (query.candidate) filter.$or = [{ candidate: query.candidate }, { candidateUser: query.candidate }, { candidateProfile: query.candidate }];
+  if (query.status) filter.status = query.status;
+  const [data, total] = await Promise.all([
+    ExamAttempt.find(filter).populate("exam", "title code status publicUrl").populate("candidate", "fullName email").populate("candidateProfile", "fullName email phone identifier").sort(sort).skip(skip).limit(limit),
+    ExamAttempt.countDocuments(filter),
+  ]);
+  return { data, meta: paginationMeta(page, limit, total) };
+};
 export const instructions = async (candidate, examId) => {
-  const exam = await Exam.findOne({ _id: examId, assignedCandidates: candidate._id, status: { $in: ["SCHEDULED", "ACTIVE"] } }).select("title instructions durationMinutes startTime endTime antiCheatSettings");
+  const exam = await Exam.findOne({ _id: examId, assignedCandidates: candidate._id, status: { $in: ["PUBLISHED", "SCHEDULED", "ACTIVE"] } }).select("title code instructions durationMinutes startTime endTime antiCheatSettings");
   if (!exam) throw new ApiError(404, "Assigned exam not found.");
+  if (!isAssignedExamOpen(exam) && exam.startTime && new Date() < exam.startTime) {
+    return exam;
+  }
   return exam;
 };
 export const start = async (req, examId, input) => {
   const now = new Date();
-  const exam = await Exam.findOne({ _id: examId, assignedCandidates: req.user._id, status: { $in: ["SCHEDULED", "ACTIVE"] } }).populate("questions");
-  if (!exam || now < exam.startTime || now > exam.endTime) throw new ApiError(403, "Exam is not currently available.");
+  const exam = await Exam.findOne({ _id: examId, assignedCandidates: req.user._id, status: { $in: ["PUBLISHED", "SCHEDULED", "ACTIVE"] } }).populate("questions");
+  if (!exam || !isAssignedExamOpen(exam, now)) throw new ApiError(403, "Exam is not currently available.");
   if (await ExamAttempt.exists({ exam: exam._id, candidate: req.user._id, status: "IN_PROGRESS" })) throw new ApiError(409, "An active attempt already exists.");
   const attempts = await ExamAttempt.countDocuments({ exam: exam._id, candidate: req.user._id, status: { $in: ["SUBMITTED", "AUTO_SUBMITTED"] } });
   if (attempts >= exam.maxAttempts) throw new ApiError(409, "Maximum attempts reached.");
   const ordered = exam.randomizeQuestions ? shuffle(exam.questions) : exam.questions;
   const presentation = ordered.map((question) => ({ question: question._id, optionOrder: (exam.randomizeOptions ? shuffle(question.options) : question.options).map((option) => option.key) }));
-  const expiry = new Date(Math.min(now.getTime() + exam.durationMinutes * 60000, exam.endTime.getTime()));
-  const attempt = await ExamAttempt.create({ exam: exam._id, candidate: req.user._id, startedAt: now, expiresAt: expiry, presentation, deviceInfo: input.deviceInfo, browserFingerprint: input.browserFingerprint, ipAddress: req.ip, lastHeartbeatAt: now });
+  const expiry = new Date(Math.min(now.getTime() + exam.durationMinutes * 60000, exam.endTime ? exam.endTime.getTime() : Number.MAX_SAFE_INTEGER));
+  const attempt = await ExamAttempt.create({ exam: exam._id, candidate: req.user._id, candidateUser: req.user._id, owner: exam.owner || exam.createdBy, startedAt: now, expiresAt: expiry, presentation, deviceInfo: input.deviceInfo, browserFingerprint: input.browserFingerprint, ipAddress: req.ip, lastHeartbeatAt: now });
   await scheduleExpiry(attempt.id, expiry);
   await recordAudit(req, "ATTEMPT_STARTED", "ExamAttempt", attempt._id, "Candidate started attempt");
   emitExamEvent(exam.id, "exam:candidate-started", { attemptId: attempt.id, candidateId: req.user.id });
@@ -61,8 +113,8 @@ export const start = async (req, examId, input) => {
 };
 export const get = async (req, id) => {
   let attempt;
-  if (req.user.role === ROLES.CANDIDATE) {
-    attempt = await ownedAttempt(id, req.user._id);
+  if (!req.user || req.user.role === ROLES.CANDIDATE) {
+    attempt = await ownedAttempt(req, id);
   } else {
     attempt = await ExamAttempt.findById(id);
     if (attempt && req.user.role === ROLES.EXAMINER && !await Exam.exists({ _id: attempt.exam, createdBy: req.user._id })) throw new ApiError(403, "You cannot view this attempt.");
@@ -71,11 +123,15 @@ export const get = async (req, id) => {
   if (!attempt) throw new ApiError(404, "Attempt not found.");
   await checkExpiry(req, attempt);
   const result = { attempt };
-  if (req.user.role === ROLES.CANDIDATE && attempt.status === "IN_PROGRESS") result.questions = await presentExam(attempt);
+  if ((!req.user || req.user.role === ROLES.CANDIDATE) && attempt.status === "IN_PROGRESS") {
+    result.questions = await presentExam(attempt);
+    const exam = await Exam.findById(attempt.exam).select("title antiCheatSettings");
+    result.exam = { id: exam.id, title: exam.title, expiresAt: attempt.expiresAt, antiCheatSettings: exam.antiCheatSettings };
+  }
   return result;
 };
 export const saveAnswer = async (req, id, input) => {
-  const attempt = await ownedAttempt(id, req.user._id);
+  const attempt = await ownedAttempt(req, id);
   if (attempt.status !== "IN_PROGRESS") throw new ApiError(409, "Attempt is no longer in progress.");
   await checkExpiry(req, attempt);
   if (!attempt.presentation.some((item) => String(item.question) === input.questionId)) throw new ApiError(400, "Question does not belong to this attempt.");
@@ -86,7 +142,7 @@ export const saveAnswer = async (req, id, input) => {
   return attempt;
 };
 export const heartbeat = async (req, id, input) => {
-  const attempt = await ownedAttempt(id, req.user._id);
+  const attempt = await ownedAttempt(req, id);
   if (attempt.status !== "IN_PROGRESS") throw new ApiError(409, "Attempt is no longer in progress.");
   await checkExpiry(req, attempt);
   attempt.lastHeartbeatAt = new Date();
@@ -117,16 +173,16 @@ export const finalizeAttempt = async (req, id, submissionType, reason, suppliedA
   if (req?.user) await recordAudit(req, status === "SUBMITTED" ? "ATTEMPT_SUBMITTED" : "ATTEMPT_AUTO_SUBMITTED", "ExamAttempt", updated._id, reason || "Attempt submitted");
   const candidate = req?.user?.role === ROLES.CANDIDATE ? req.user : null;
   if (candidate && status === "SUBMITTED") await sendExamSubmittedEmail(candidate, exam, updated);
-  emitExamEvent(exam.id, status === "SUBMITTED" ? "exam:candidate-submitted" : "exam:candidate-auto-submitted", { attemptId: updated.id, candidateId: String(updated.candidate), reason });
+  emitExamEvent(exam.id, status === "SUBMITTED" ? "exam:candidate-submitted" : "exam:candidate-auto-submitted", { attemptId: updated.id, candidateId: String(updated.candidate || updated.candidateProfile), reason });
   return updated;
 };
 export const submit = async (req, id, input) => {
-  const attempt = await ownedAttempt(id, req.user._id);
+  const attempt = await ownedAttempt(req, id);
   if (attempt.status !== "IN_PROGRESS") throw new ApiError(409, "Attempt has already been submitted.");
   return finalizeAttempt(req, id, "MANUAL", "Candidate submitted the exam.", input.answers);
 };
 export const result = async (req, id) => {
-  const attempt = await ownedAttempt(id, req.user._id);
+  const attempt = await ownedAttempt(req, id);
   const exam = await Exam.findById(attempt.exam);
   if (!exam.showResultImmediately) return { pending: true, message: "Result is pending examiner review." };
   return { score: attempt.score, totalMarks: attempt.totalMarks, percentage: attempt.percentage, passed: attempt.passed, status: attempt.status };

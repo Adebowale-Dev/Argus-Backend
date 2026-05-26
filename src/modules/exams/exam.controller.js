@@ -8,5 +8,14 @@ export const update = asyncHandler(async (req, res) => res.json(new ApiResponse(
 export const remove = asyncHandler(async (req, res) => res.json(new ApiResponse("Exam archived.", await service.remove(req, req.params.id))));
 export const publish = asyncHandler(async (req, res) => res.json(new ApiResponse("Exam published.", await service.publish(req, req.params.id))));
 export const close = asyncHandler(async (req, res) => res.json(new ApiResponse("Exam closed.", await service.close(req, req.params.id))));
+export const disable = asyncHandler(async (req, res) => res.json(new ApiResponse("Exam disabled.", await service.disable(req, req.params.id, req.body?.reason))));
+export const regenerateAccessCode = asyncHandler(async (req, res) => res.json(new ApiResponse("Exam access code regenerated.", await service.regenerateAccessCode(req, req.params.id))));
+export const regenerateLink = asyncHandler(async (req, res) => res.json(new ApiResponse("Exam public link regenerated.", await service.regenerateLink(req, req.params.id))));
+export const accessInfo = asyncHandler(async (req, res) => res.json(new ApiResponse("Exam access info retrieved.", await service.accessInfo(req.user, req.params.id))));
+export const attempts = asyncHandler(async (req, res) => {
+  const out = await service.attempts(req.user, req.params.id, req.query);
+  res.json(new ApiResponse("Exam attempts retrieved.", out.data, out.meta));
+});
+export const reports = attempts;
 export const assign = asyncHandler(async (req, res) => res.json(new ApiResponse("Candidates assigned.", await service.assignCandidates(req, req.params.id, req.body.candidateIds))));
 export const candidates = asyncHandler(async (req, res) => res.json(new ApiResponse("Assigned candidates retrieved.", await service.candidates(req.user, req.params.id))));

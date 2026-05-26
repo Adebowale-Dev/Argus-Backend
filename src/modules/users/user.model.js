@@ -12,7 +12,6 @@ const userSchema = new mongoose.Schema({
   password: { type: String, required: true, select: false },
   role: { type: String, enum: Object.values(ROLES), required: true, index: true },
   permissions: [{ type: String, enum: PERMISSION_VALUES }],
-  department: { type: mongoose.Schema.Types.ObjectId, ref: "Department" },
   status: { type: String, enum: USER_STATUSES, default: "ACTIVE", index: true },
   isEmailVerified: { type: Boolean, default: false },
   mustChangePassword: { type: Boolean, default: true },
@@ -24,7 +23,9 @@ const userSchema = new mongoose.Schema({
   createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
   blockedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
   blockedAt: Date,
-  blockReason: String
+  blockReason: String,
+  profileImage: String,
+  metadata: { type: mongoose.Schema.Types.Mixed, default: {} }
 }, { timestamps: true });
 
 userSchema.pre("save", async function hashPassword() {

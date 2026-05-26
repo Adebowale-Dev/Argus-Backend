@@ -37,10 +37,10 @@ export const swaggerSpec = swaggerJsdoc({
     tags: [
       { name: "Auth", description: "Authentication, sessions and password recovery." },
       { name: "Users", description: "User lifecycle and administrative account controls." },
-      { name: "Departments", description: "Academic department management." },
-      { name: "Courses", description: "Course assignment and ownership management." },
-      { name: "Questions", description: "Examiner question-bank and asset operations." },
-      { name: "Exams", description: "Exam authoring, scheduling and candidate assignment." },
+      { name: "Question Banks", description: "Examiner-owned generic question banks." },
+      { name: "Questions", description: "Questions inside examiner-owned banks." },
+      { name: "Exams", description: "Examiner exam authoring, public links and access codes." },
+      { name: "Public Exams", description: "Public exam landing, code verification and attempt start." },
       { name: "Candidate Exams", description: "Candidate assigned-exam discovery." },
       { name: "Attempts", description: "Timed exam-taking, autosave, submission and results." },
       { name: "Anti-Cheat", description: "Violation events, evidence capture and monitoring reports." },
@@ -71,8 +71,8 @@ export const swaggerSpec = swaggerJsdoc({
           properties: { page: { type: "integer" }, limit: { type: "integer" }, total: { type: "integer" }, totalPages: { type: "integer" } }
         },
         LoginRequest: {
-          type: "object", required: ["email", "password"],
-          properties: { email: { type: "string", format: "email", example: "admin@gmail.com" }, password: { type: "string", format: "password", example: "123456789" } }
+          type: "object", required: ["identifier", "password"],
+          properties: { identifier: { type: "string", example: "admin@gmail.com or adaeze.okafor" }, password: { type: "string", format: "password", example: "123456789" } }
         },
         ForgotPasswordRequest: { type: "object", required: ["email"], properties: { email: { type: "string", format: "email" } } },
         ResetPasswordRequest: { type: "object", required: ["token", "password"], properties: { token: { type: "string" }, password: { type: "string", format: "password", minLength: 8 } } },
@@ -82,21 +82,27 @@ export const swaggerSpec = swaggerJsdoc({
           properties: {
             fullName: { type: "string" }, email: { type: "string", format: "email" }, username: { type: "string" }, password: { type: "string", format: "password", minLength: 8 },
             role: { type: "string", enum: ["SUPER_ADMIN", "SUB_ADMIN", "EXAMINER", "CANDIDATE"] },
-            permissions: { type: "array", items: { type: "string" } }, department: { type: "string" }
+            permissions: { type: "array", items: { type: "string" } }
           }
         },
-        UpdateUserRequest: { type: "object", properties: { fullName: { type: "string" }, username: { type: "string" }, department: { type: "string", nullable: true }, permissions: { type: "array", items: { type: "string" } } } },
+        UpdateUserRequest: { type: "object", properties: { fullName: { type: "string" }, username: { type: "string" }, permissions: { type: "array", items: { type: "string" } }, profileImage: { type: "string", format: "uri" }, metadata: { type: "object", additionalProperties: true } } },
         RoleRequest: { type: "object", required: ["role"], properties: { role: { type: "string", enum: ["SUPER_ADMIN", "SUB_ADMIN", "EXAMINER", "CANDIDATE"] }, permissions: { type: "array", items: { type: "string" } } } },
         BlockRequest: { type: "object", required: ["reason"], properties: { reason: { type: "string" } } },
         TemporaryPasswordRequest: { type: "object", required: ["temporaryPassword"], properties: { temporaryPassword: { type: "string", format: "password", minLength: 8 } } },
-        DepartmentRequest: { type: "object", required: ["name", "code"], properties: { name: { type: "string" }, code: { type: "string" }, description: { type: "string" }, status: { type: "string", enum: ["ACTIVE", "INACTIVE"] } } },
-        CourseRequest: { type: "object", required: ["title", "code", "department"], properties: { title: { type: "string" }, code: { type: "string" }, description: { type: "string" }, department: { type: "string" }, examiners: { type: "array", items: { type: "string" } }, candidates: { type: "array", items: { type: "string" } } } },
         QuestionRequest: {
-          type: "object", required: ["course", "questionText", "questionType", "options", "correctAnswer"],
+          type: "object", required: ["questionBank", "questionText", "questionType", "options", "correctAnswer"],
           properties: {
-            course: { type: "string" }, questionText: { type: "string" }, questionType: { type: "string", enum: ["MULTIPLE_CHOICE", "TRUE_FALSE", "SINGLE_SELECT"] },
+            questionBank: { type: "string" }, questionText: { type: "string" }, questionType: { type: "string", enum: ["MULTIPLE_CHOICE", "TRUE_FALSE", "SINGLE_SELECT"] },
             options: { type: "array", items: { type: "object", properties: { key: { type: "string" }, text: { type: "string" } } } },
             correctAnswer: { type: "array", items: { type: "string" } }, marks: { type: "number" }, difficulty: { type: "string", enum: ["EASY", "MEDIUM", "HARD"] }, topic: { type: "string" }, explanation: { type: "string" }
+          }
+        },
+        CloneQuestionRequest: {
+          type: "object",
+          required: ["questionBank", "sourceQuestionIds"],
+          properties: {
+            questionBank: { type: "string" },
+            sourceQuestionIds: { type: "array", items: { type: "string" } },
           }
         },
         AntiCheatSettings: {
@@ -109,15 +115,18 @@ export const swaggerSpec = swaggerJsdoc({
           }
         },
         ExamRequest: {
-          type: "object", required: ["title", "code", "course", "durationMinutes", "startTime", "endTime", "questions", "passMark"],
+          type: "object", required: ["title", "questionBank", "durationMinutes", "questions", "passMark"],
           properties: {
-            title: { type: "string" }, code: { type: "string" }, course: { type: "string" }, description: { type: "string" }, instructions: { type: "string" },
-            durationMinutes: { type: "integer" }, startTime: { type: "string", format: "date-time" }, endTime: { type: "string", format: "date-time" }, questions: { type: "array", items: { type: "string" } },
-            passMark: { type: "number" }, assignedCandidates: { type: "array", items: { type: "string" } }, randomizeQuestions: { type: "boolean" }, randomizeOptions: { type: "boolean" },
+            title: { type: "string" }, questionBank: { type: "string" }, description: { type: "string" }, instructions: { type: "string" },
+            durationMinutes: { type: "integer" }, availabilityMode: { type: "string", enum: ["ALWAYS_OPEN", "SCHEDULED", "CLOSED_MANUALLY"] }, accessType: { type: "string", enum: ["PUBLIC_LINK_WITH_CODE", "LOGIN_REQUIRED_WITH_CODE", "INVITE_ONLY"] }, startTime: { type: "string", format: "date-time" }, endTime: { type: "string", format: "date-time" }, questions: { type: "array", items: { type: "string" } },
+            passMark: { type: "number" }, randomizeQuestions: { type: "boolean" }, randomizeOptions: { type: "boolean" },
             showResultImmediately: { type: "boolean" }, maxAttempts: { type: "integer" }, antiCheatSettings: { $ref: "#/components/schemas/AntiCheatSettings" }
           }
         },
-        CandidateAssignmentRequest: { type: "object", required: ["candidateIds"], properties: { candidateIds: { type: "array", items: { type: "string" } } } },
+        QuestionBankRequest: { type: "object", required: ["title"], properties: { title: { type: "string" }, description: { type: "string" }, tags: { type: "array", items: { type: "string" } }, visibility: { type: "string", enum: ["PRIVATE", "SHARED"] } } },
+        VerifyExamCodeRequest: { type: "object", required: ["accessCode"], properties: { accessCode: { type: "string", example: "482913" } } },
+        ResolveExamCodeRequest: { type: "object", required: ["examCode"], properties: { examCode: { type: "string", example: "AR1214" } } },
+        StartPublicExamRequest: { type: "object", required: ["examAccessToken", "candidate", "acceptedTerms"], properties: { examAccessToken: { type: "string" }, candidate: { type: "object", properties: { fullName: { type: "string" }, email: { type: "string", format: "email" }, phone: { type: "string" }, identifier: { type: "string" } } }, acceptedTerms: { type: "boolean" }, browserFingerprint: { type: "string" } } },
         StartAttemptRequest: { type: "object", properties: { deviceInfo: { type: "object", additionalProperties: true }, browserFingerprint: { type: "string" } } },
         SaveAnswerRequest: { type: "object", required: ["questionId"], properties: { questionId: { type: "string" }, answer: { type: "array", items: { type: "string" } }, currentQuestionIndex: { type: "integer" } } },
         HeartbeatRequest: { type: "object", properties: { currentQuestionIndex: { type: "integer" } } },
@@ -149,13 +158,14 @@ export const swaggerSpec = swaggerJsdoc({
       "/users/{id}/role": { patch: { ...secured("Users", "Change a user's role and permissions"), parameters: [id("id", "User ID")], requestBody: jsonBody("RoleRequest") } },
       "/users/{id}/password-reset": { patch: { ...secured("Users", "Assign a temporary password"), parameters: [id("id", "User ID")], requestBody: jsonBody("TemporaryPasswordRequest") } },
 
-      "/departments": { get: list("Departments", "List departments"), post: { ...secured("Departments", "Create a department", 201), requestBody: jsonBody("DepartmentRequest") } },
-      "/departments/{id}": { get: { ...secured("Departments", "Get a department"), parameters: [id("id", "Department ID")] }, patch: { ...secured("Departments", "Update a department"), parameters: [id("id", "Department ID")], requestBody: jsonBody("DepartmentRequest") }, delete: { ...secured("Departments", "Deactivate a department"), parameters: [id("id", "Department ID")] } },
-      "/courses": { get: list("Courses", "List courses"), post: { ...secured("Courses", "Create a course", 201), requestBody: jsonBody("CourseRequest") } },
-      "/courses/{id}": { get: { ...secured("Courses", "Get a course"), parameters: [id("id", "Course ID")] }, patch: { ...secured("Courses", "Update a course"), parameters: [id("id", "Course ID")], requestBody: jsonBody("CourseRequest") }, delete: { ...secured("Courses", "Deactivate a course"), parameters: [id("id", "Course ID")] } },
+      "/question-banks": { get: list("Question Banks", "List question banks"), post: { ...secured("Question Banks", "Create an examiner-owned question bank", 201), requestBody: jsonBody("QuestionBankRequest") } },
+      "/question-banks/{id}": { get: { ...secured("Question Banks", "Get a question bank"), parameters: [id("id", "Question bank ID")] }, patch: { ...secured("Question Banks", "Update a question bank"), parameters: [id("id", "Question bank ID")], requestBody: jsonBody("QuestionBankRequest") }, delete: { ...secured("Question Banks", "Archive a question bank"), parameters: [id("id", "Question bank ID")] } },
+      "/question-banks/{id}/questions": { get: { ...list("Question Banks", "List questions in a bank"), parameters: [id("id", "Question bank ID"), ...pagination] } },
 
       "/questions": { get: list("Questions", "List question-bank items"), post: { ...secured("Questions", "Create a question", 201), requestBody: jsonBody("QuestionRequest") } },
+      "/questions/import-template": { get: { ...secured("Questions", "Download the CSV template for question import"), responses: { 200: { description: "CSV template.", content: { "text/csv": { schema: { type: "string" } } } } } } },
       "/questions/bulk-import": { post: { ...secured("Questions", "Bulk import questions from JSON or CSV", 201), requestBody: { content: { "application/json": { schema: { type: "object", properties: { questions: { type: "array", items: { $ref: "#/components/schemas/QuestionRequest" } } } } }, "multipart/form-data": { schema: { type: "object", properties: { file: { type: "string", format: "binary" } } } } } } } },
+      "/questions/clone": { post: { ...secured("Questions", "Copy your existing questions into another question bank", 201), requestBody: jsonBody("CloneQuestionRequest") } },
       "/questions/{id}": { get: { ...secured("Questions", "Get a question-bank item"), parameters: [id("id", "Question ID")] }, patch: { ...secured("Questions", "Update a question"), parameters: [id("id", "Question ID")], requestBody: jsonBody("QuestionRequest") }, delete: { ...secured("Questions", "Deactivate a question"), parameters: [id("id", "Question ID")] } },
       "/questions/{id}/attachments": { post: { ...secured("Questions", "Upload a question attachment", 201), parameters: [id("id", "Question ID")], requestBody: { content: { "multipart/form-data": { schema: { type: "object", required: ["file"], properties: { file: { type: "string", format: "binary" } } } } } } } },
 
@@ -163,12 +173,21 @@ export const swaggerSpec = swaggerJsdoc({
       "/exams/{id}": { get: { ...secured("Exams", "Get an exam"), parameters: [id("id", "Exam ID")] }, patch: { ...secured("Exams", "Update a draft exam"), parameters: [id("id", "Exam ID")], requestBody: jsonBody("ExamRequest") }, delete: { ...secured("Exams", "Archive an exam"), parameters: [id("id", "Exam ID")] } },
       "/exams/{id}/publish": { post: { ...secured("Exams", "Publish a draft exam"), parameters: [id("id", "Exam ID")] } },
       "/exams/{id}/close": { post: { ...secured("Exams", "Close an exam"), parameters: [id("id", "Exam ID")] } },
-      "/exams/{id}/assign-candidates": { post: { ...secured("Exams", "Assign candidates to an exam"), parameters: [id("id", "Exam ID")], requestBody: jsonBody("CandidateAssignmentRequest") } },
-      "/exams/{id}/candidates": { get: { ...secured("Exams", "List assigned candidates"), parameters: [id("id", "Exam ID")] } },
+      "/exams/{id}/disable": { post: { ...secured("Exams", "Disable an exam for moderation"), parameters: [id("id", "Exam ID")] } },
+      "/exams/{id}/regenerate-access-code": { post: { ...secured("Exams", "Regenerate a 6-digit access code"), parameters: [id("id", "Exam ID")] } },
+      "/exams/{id}/regenerate-link": { post: { ...secured("Exams", "Regenerate the public exam link"), parameters: [id("id", "Exam ID")] } },
+      "/exams/{id}/access-info": { get: { ...secured("Exams", "Get public link metadata without exposing the code"), parameters: [id("id", "Exam ID")] } },
+      "/exams/{id}/attempts": { get: { ...list("Exams", "List attempts for an exam"), parameters: [id("id", "Exam ID"), ...pagination] } },
+      "/exams/{id}/reports": { get: { ...list("Exams", "Get exam report data"), parameters: [id("id", "Exam ID"), ...pagination] } },
+      "/public/exams/resolve-code": { post: { tags: ["Public Exams"], summary: "Resolve a branded exam code like AR1214 to its public exam slug", requestBody: jsonBody("ResolveExamCodeRequest"), responses: { 200: response("Exam code resolved.") } } },
+      "/public/exams/{slug}": { get: { tags: ["Public Exams"], summary: "Get safe public exam landing details", parameters: [id("slug", "Public exam slug")], responses: { 200: response("Exam landing details.") } } },
+      "/public/exams/{slug}/verify-code": { post: { tags: ["Public Exams"], summary: "Verify the 6-digit exam access code", parameters: [id("slug", "Public exam slug")], requestBody: jsonBody("VerifyExamCodeRequest"), responses: { 200: response("Access code verified.") } } },
+      "/public/exams/{slug}/start": { post: { tags: ["Public Exams"], summary: "Start a public exam attempt with a verified access token", parameters: [id("slug", "Public exam slug")], requestBody: jsonBody("StartPublicExamRequest"), responses: { 201: response("Attempt started.") } } },
 
       "/candidate/exams": { get: list("Candidate Exams", "List assigned candidate exams") },
       "/candidate/exams/{examId}/instructions": { get: { ...secured("Candidate Exams", "Get assigned exam instructions"), parameters: [id("examId", "Exam ID")] } },
       "/exams/{examId}/start": { post: { ...secured("Attempts", "Start an eligible assigned exam", 201), parameters: [id("examId", "Exam ID")], requestBody: jsonBody("StartAttemptRequest") } },
+      "/attempts": { get: list("Attempts", "List monitored attempts") },
       "/attempts/{attemptId}": { get: { ...secured("Attempts", "Get attempt state"), parameters: [id("attemptId", "Attempt ID")] } },
       "/attempts/{attemptId}/save-answer": { post: { ...secured("Attempts", "Save or update an attempt answer"), parameters: [id("attemptId", "Attempt ID")], requestBody: jsonBody("SaveAnswerRequest") } },
       "/attempts/{attemptId}/heartbeat": { post: { ...secured("Attempts", "Record attempt heartbeat"), parameters: [id("attemptId", "Attempt ID")], requestBody: jsonBody("HeartbeatRequest") } },

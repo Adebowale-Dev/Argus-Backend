@@ -4,7 +4,7 @@ import { PERMISSIONS } from "../../constants/permissions.js";
 import { ApiError } from "../../utils/ApiError.js";
 import { paginationMeta, paginationParams } from "../../utils/pagination.js";
 import { recordAudit } from "../audit-logs/auditLog.service.js";
-import { sendAccountBlockedEmail, sendAdminCreatedEmail, sendCandidateCreatedEmail, sendExaminerCreatedEmail, sendSubAdminCreatedEmail } from "../../emails/email.service.js";
+import { sendAccountBlockedEmail, sendAdminCreatedEmail, sendCandidateCreatedEmail, sendExaminerCreatedEmail, sendSubAdminCreatedEmail, sendWelcomeEmail } from "../../emails/email.service.js";
 
 const assertManageTarget = (actor, targetRole) => {
   if (actor.role === ROLES.SUPER_ADMIN) return;
@@ -17,18 +17,39 @@ const assertPermissionForRole = (actor, role) => {
   if (!actor.permissions.includes(needed)) throw new ApiError(403, "Required user management permission is missing.");
 };
 
-export const listUsers = async (query) => {
+const visibleRoles = (actor) => {
+  if (actor.role === ROLES.SUPER_ADMIN) return undefined;
+  if (actor.role === ROLES.EXAMINER) return [ROLES.CANDIDATE];
+  const roles = [];
+  if (actor.permissions.includes(PERMISSIONS.MANAGE_EXAMINERS)) roles.push(ROLES.EXAMINER);
+  if (actor.permissions.includes(PERMISSIONS.MANAGE_CANDIDATES)) roles.push(ROLES.CANDIDATE);
+  return roles;
+};
+
+export const listUsers = async (actor, query) => {
   const { page, limit, skip, sort } = paginationParams(query);
   const filter = {};
+  const permittedRoles = visibleRoles(actor);
+  if (permittedRoles) {
+    if (!permittedRoles.length) return { data: [], meta: paginationMeta(page, limit, 0) };
+    if (query.role && !permittedRoles.includes(query.role)) return { data: [], meta: paginationMeta(page, limit, 0) };
+    filter.role = query.role && permittedRoles.includes(query.role) ? query.role : { $in: permittedRoles };
+  }
   if (query.status) filter.status = query.status;
-  if (query.role) filter.role = query.role;
-  if (query.search) filter.$or = [{ fullName: new RegExp(query.search, "i") }, { email: new RegExp(query.search, "i") }];
+  if (query.role && !permittedRoles) filter.role = query.role;
+  if (query.search) filter.$or = [{ fullName: new RegExp(query.search, "i") }, { email: new RegExp(query.search, "i") }, { username: new RegExp(query.search, "i") }];
   const [data, total] = await Promise.all([User.find(filter).sort(sort).skip(skip).limit(limit), User.countDocuments(filter)]);
   return { data, meta: paginationMeta(page, limit, total) };
 };
-export const getUser = async (id) => {
+export const getUser = async (actor, id) => {
   const user = await User.findById(id);
   if (!user) throw new ApiError(404, "User not found.");
+  if (actor.role === ROLES.EXAMINER) {
+    if (user.role !== ROLES.CANDIDATE) throw new ApiError(403, "Examiners can only view candidate accounts.");
+    return user;
+  }
+  assertManageTarget(actor, user.role);
+  assertPermissionForRole(actor, user.role);
   return user;
 };
 export const createUser = async (req, input) => {
@@ -38,7 +59,7 @@ export const createUser = async (req, input) => {
   if (input.role !== ROLES.SUB_ADMIN) input.permissions = [];
   const user = await User.create({ ...input, createdBy: req.user._id, mustChangePassword: true });
   const mails = { [ROLES.SUPER_ADMIN]: sendAdminCreatedEmail, [ROLES.SUB_ADMIN]: sendSubAdminCreatedEmail, [ROLES.EXAMINER]: sendExaminerCreatedEmail, [ROLES.CANDIDATE]: sendCandidateCreatedEmail };
-  await mails[user.role](user, input.password);
+  await Promise.all([sendWelcomeEmail(user), mails[user.role](user, input.password)]);
   await recordAudit(req, "USER_CREATED", "User", user._id, `Created ${user.role} account`);
   return user;
 };
@@ -69,6 +90,7 @@ export const setBlocked = async (req, id, blocked, reason) => {
   if (!user) throw new ApiError(404, "User not found.");
   if (String(user._id) === String(req.user._id)) throw new ApiError(400, "You cannot block your own account.");
   assertManageTarget(req.user, user.role);
+  assertPermissionForRole(req.user, user.role);
   if (req.user.role === ROLES.SUB_ADMIN && !req.user.permissions.includes(PERMISSIONS.BLOCK_USERS)) throw new ApiError(403, "Required block permission is missing.");
   user.status = blocked ? "BLOCKED" : "ACTIVE";
   user.blockedBy = blocked ? req.user._id : undefined;
@@ -85,6 +107,7 @@ export const deleteUser = async (req, id) => {
   const user = await User.findById(id);
   if (!user) throw new ApiError(404, "User not found.");
   assertManageTarget(req.user, user.role);
+  assertPermissionForRole(req.user, user.role);
   user.status = "DELETED";
   user.refreshTokenHash = undefined;
   await user.save({ validateBeforeSave: false });
@@ -94,6 +117,7 @@ export const resetUserPassword = async (req, id, password) => {
   const user = await User.findById(id).select("+password");
   if (!user) throw new ApiError(404, "User not found.");
   assertManageTarget(req.user, user.role);
+  assertPermissionForRole(req.user, user.role);
   if (req.user.role === ROLES.SUB_ADMIN && !req.user.permissions.includes(PERMISSIONS.RESET_USER_PASSWORDS)) throw new ApiError(403, "Required reset permission is missing.");
   user.password = password; user.mustChangePassword = true; user.refreshTokenHash = undefined;
   await user.save();

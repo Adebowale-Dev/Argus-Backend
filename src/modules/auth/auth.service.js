@@ -2,8 +2,10 @@ import { User } from "../users/user.model.js";
 import { ApiError } from "../../utils/ApiError.js";
 import { generateAccessToken, generateRefreshToken, hashToken, randomToken, verifyRefreshToken } from "../../utils/generateToken.js";
 import { sendPasswordResetEmail } from "../../emails/email.service.js";
+import { sendWelcomeEmail } from "../../emails/email.service.js";
 import { env } from "../../config/env.js";
 import { recordAudit } from "../audit-logs/auditLog.service.js";
+import { ROLES } from "../../constants/roles.js";
 
 const publicUser = (user) => ({ id: user.id, fullName: user.fullName, email: user.email, role: user.role, permissions: user.permissions, mustChangePassword: user.mustChangePassword });
 const createSession = async (user) => {
@@ -14,10 +16,16 @@ const createSession = async (user) => {
 };
 
 export const login = async (req, credentials) => {
-  const user = await User.findOne({ email: credentials.email.toLowerCase() }).select("+password +refreshTokenHash");
+  const identifier = (credentials.identifier || credentials.email || "").trim().toLowerCase();
+  const user = await User.findOne({
+    $or: [
+      { email: identifier },
+      { username: identifier },
+    ],
+  }).select("+password +refreshTokenHash");
   if (!user || !(await user.comparePassword(credentials.password))) {
-    await recordAudit(req, "LOGIN_FAILURE", "User", user?._id, "Failed login attempt", { email: credentials.email });
-    throw new ApiError(401, "Invalid email or password.");
+    await recordAudit(req, "LOGIN_FAILURE", "User", user?._id, "Failed login attempt", { identifier: credentials.identifier || credentials.email });
+    throw new ApiError(401, "Invalid email, username, or password.");
   }
   if (user.status !== "ACTIVE") throw new ApiError(403, "This account cannot sign in.");
   user.lastLoginAt = new Date();
@@ -70,4 +78,25 @@ export const changePassword = async (userId, { currentPassword, newPassword }) =
   user.mustChangePassword = false;
   user.refreshTokenHash = undefined;
   await user.save();
+};
+
+export const registerExaminer = async (req, payload) => {
+  if (!env.ALLOW_EXAMINER_SELF_REGISTRATION) throw new ApiError(403, "Examiner self-registration is currently disabled.");
+  const email = payload.email.toLowerCase();
+  if (await User.exists({ email })) throw new ApiError(409, "An account with this email already exists.");
+  if (payload.username && await User.exists({ username: payload.username.toLowerCase() })) throw new ApiError(409, "This username is already taken.");
+  const user = await User.create({
+    fullName: payload.fullName,
+    email,
+    username: payload.username?.toLowerCase(),
+    password: payload.password,
+    role: ROLES.EXAMINER,
+    permissions: [],
+    mustChangePassword: false,
+    isEmailVerified: false,
+    status: "ACTIVE",
+  });
+  await sendWelcomeEmail(user);
+  await recordAudit({ ...req, user }, "EXAMINER_REGISTERED", "User", user._id, "Examiner self-registration completed");
+  return publicUser(user);
 };

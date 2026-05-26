@@ -1,6 +1,7 @@
 import * as service from "./attempt.service.js";
 import { ApiResponse } from "../../utils/ApiResponse.js";
 import { asyncHandler } from "../../utils/asyncHandler.js";
+export const list = asyncHandler(async (req, res) => { const out = await service.list(req.user, req.query); res.json(new ApiResponse("Attempts retrieved.", out.data, out.meta)); });
 export const candidateExams = asyncHandler(async (req, res) => { const out = await service.candidateExams(req.user, req.query); res.json(new ApiResponse("Assigned exams retrieved.", out.data, out.meta)); });
 export const instructions = asyncHandler(async (req, res) => res.json(new ApiResponse("Exam instructions retrieved.", await service.instructions(req.user, req.params.examId))));
 export const start = asyncHandler(async (req, res) => res.status(201).json(new ApiResponse("Attempt started.", await service.start(req, req.params.examId, req.body))));

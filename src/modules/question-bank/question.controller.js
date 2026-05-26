@@ -6,5 +6,12 @@ export const create = asyncHandler(async (req, res) => res.status(201).json(new 
 export const get = asyncHandler(async (req, res) => res.json(new ApiResponse("Question retrieved.", await service.get(req.user, req.params.id))));
 export const update = asyncHandler(async (req, res) => res.json(new ApiResponse("Question updated.", await service.update(req, req.params.id, req.body))));
 export const remove = asyncHandler(async (req, res) => res.json(new ApiResponse("Question deactivated.", await service.remove(req, req.params.id))));
+export const previewBulkImport = asyncHandler(async (req, res) => res.json(new ApiResponse("Question import preview generated.", await service.previewBulkImport(req))));
 export const bulkImport = asyncHandler(async (req, res) => res.status(201).json(new ApiResponse("Questions imported.", await service.bulkImport(req))));
+export const clone = asyncHandler(async (req, res) => res.status(201).json(new ApiResponse("Questions copied into the selected bank.", await service.cloneQuestions(req, req.body))));
+export const template = asyncHandler(async (_req, res) => {
+  res.setHeader("Content-Type", "text/csv; charset=utf-8");
+  res.setHeader("Content-Disposition", "attachment; filename=\"argus-question-import-template.csv\"");
+  res.status(200).send(service.importTemplate());
+});
 export const attachment = asyncHandler(async (req, res) => res.status(201).json(new ApiResponse("Attachment uploaded.", await service.addAttachment(req, req.params.id, req.file))));

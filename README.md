@@ -74,6 +74,7 @@ The seed is idempotent and reads `DEFAULT_ADMIN_EMAIL` and `DEFAULT_ADMIN_PASSWO
 - Interactive Swagger documentation: `http://localhost:5000/api/v1/docs`
 
 Primary resources are `/auth`, `/users`, `/departments`, `/courses`, `/questions`, `/exams`, `/attempts`, `/settings`, `/audit-logs`, and `/reports`.
+Monitoring roles can retrieve paginated attempt sessions with `GET /api/v1/attempts`, scoped by role and optional `exam`, `candidate`, or `status` filters.
 
 ## Anti-Cheat Flow
 

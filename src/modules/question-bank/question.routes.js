@@ -6,7 +6,7 @@ import { validate } from "../../middlewares/validate.middleware.js";
 import { upload } from "../../middlewares/upload.middleware.js";
 import { ROLES } from "../../constants/roles.js";
 import { PERMISSIONS } from "../../constants/permissions.js";
-import { questionSchema, questionUpdateSchema } from "./question.validation.js";
+import { cloneQuestionsSchema, questionSchema, questionUpdateSchema } from "./question.validation.js";
 const router = Router();
 router.use(authenticate, authorizeRoles(ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN, ROLES.EXAMINER));
 router.use((req, _res, next) => {
@@ -18,9 +18,12 @@ router.use((req, _res, next) => {
   next();
 });
 router.get("/", controller.list);
+router.get("/import-template", authorizeRoles(ROLES.EXAMINER), controller.template);
+router.post("/bulk-import/preview", authorizeRoles(ROLES.EXAMINER), upload.single("file"), controller.previewBulkImport);
+router.post("/bulk-import", authorizeRoles(ROLES.EXAMINER), upload.single("file"), controller.bulkImport);
+router.post("/clone", authorizeRoles(ROLES.EXAMINER), validate({ body: cloneQuestionsSchema }), controller.clone);
 router.get("/:id", controller.get);
 router.post("/", authorizeRoles(ROLES.EXAMINER), validate({ body: questionSchema }), controller.create);
-router.post("/bulk-import", authorizeRoles(ROLES.EXAMINER), upload.single("file"), controller.bulkImport);
 router.patch("/:id", authorizeRoles(ROLES.EXAMINER), validate({ body: questionUpdateSchema }), controller.update);
 router.delete("/:id", authorizeRoles(ROLES.EXAMINER), controller.remove);
 router.post("/:id/attachments", authorizeRoles(ROLES.EXAMINER), upload.single("file"), controller.attachment);

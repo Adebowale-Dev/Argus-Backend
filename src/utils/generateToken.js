@@ -20,6 +20,18 @@ export const generateRefreshToken = (user) => jwt.sign(
 );
 export const verifyAccessToken = (token) => assertType(jwt.verify(token, env.JWT_ACCESS_SECRET, jwtOptions), "access");
 export const verifyRefreshToken = (token) => assertType(jwt.verify(token, env.JWT_REFRESH_SECRET, jwtOptions), "refresh");
+export const generateExamAccessToken = (exam) => jwt.sign(
+  { sub: String(exam.id || exam._id), slug: exam.publicSlug, type: "exam_access" },
+  env.JWT_EXAM_ACCESS_SECRET,
+  { ...jwtOptions, expiresIn: env.JWT_EXAM_ACCESS_EXPIRES_IN, jwtid: crypto.randomUUID() }
+);
+export const verifyExamAccessToken = (token) => assertType(jwt.verify(token, env.JWT_EXAM_ACCESS_SECRET, jwtOptions), "exam_access");
+export const generateAttemptToken = (attempt) => jwt.sign(
+  { sub: String(attempt.id || attempt._id), exam: String(attempt.exam), type: "attempt" },
+  env.JWT_ATTEMPT_SECRET,
+  { ...jwtOptions, expiresIn: env.JWT_ATTEMPT_EXPIRES_IN, jwtid: crypto.randomUUID() }
+);
+export const verifyAttemptToken = (token) => assertType(jwt.verify(token, env.JWT_ATTEMPT_SECRET, jwtOptions), "attempt");
 export const tokenRemainingMs = (token) => {
   const payload = jwt.decode(token);
   return payload?.exp ? Math.max(payload.exp * 1000 - Date.now(), 0) : undefined;

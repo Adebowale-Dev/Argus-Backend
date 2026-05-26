@@ -4,7 +4,9 @@ import { ANTI_CHEAT_EVENTS, SEVERITIES, SYSTEM_ACTIONS } from "../../constants/a
 const schema = new mongoose.Schema({
   attempt: { type: mongoose.Schema.Types.ObjectId, ref: "ExamAttempt", required: true, index: true },
   exam: { type: mongoose.Schema.Types.ObjectId, ref: "Exam", required: true, index: true },
-  candidate: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true, index: true },
+  candidate: { type: mongoose.Schema.Types.ObjectId, ref: "User", index: true },
+  candidateProfile: { type: mongoose.Schema.Types.ObjectId, ref: "CandidateProfile", index: true },
+  owner: { type: mongoose.Schema.Types.ObjectId, ref: "User", index: true },
   eventType: { type: String, enum: ANTI_CHEAT_EVENTS, required: true },
   severity: { type: String, enum: SEVERITIES, required: true }, points: { type: Number, default: 0 },
   description: String, questionIndex: Number, timeRemaining: Number, metadata: mongoose.Schema.Types.Mixed,

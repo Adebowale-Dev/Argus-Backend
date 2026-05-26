@@ -24,7 +24,29 @@ export const initializeSockets = (server) => {
     socket.on("candidate:join-exam", async ({ attemptId }) => {
       if (socket.user.role !== ROLES.CANDIDATE) return;
       const attempt = await ExamAttempt.findOne({ _id: attemptId, candidate: socket.user._id, status: "IN_PROGRESS" });
-      if (attempt) { socket.join(`attempt:${attemptId}`); socket.join(`exam:${attempt.exam}`); }
+      if (attempt) {
+        socket.data.attemptId = attemptId;
+        socket.data.examId = String(attempt.exam);
+        socket.join(`attempt:${attemptId}`);
+        socket.join(`exam:${attempt.exam}`);
+        io.to(`exam:${attempt.exam}`).emit("exam:candidate-reconnected", { attemptId, candidateId: socket.user.id });
+      }
+    });
+    socket.on("candidate:heartbeat", ({ attemptId }) => {
+      if (socket.user.role === ROLES.CANDIDATE && attemptId === socket.data.attemptId) {
+        io.to(`exam:${socket.data.examId}`).emit("exam:candidate-reconnected", { attemptId, candidateId: socket.user.id });
+      }
+    });
+    socket.on("candidate:anti-cheat-event", (_payload, acknowledge) => {
+      if (typeof acknowledge === "function") acknowledge({ accepted: false, message: "Submit anti-cheat events through the validated REST endpoint." });
+    });
+    socket.on("candidate:leave-exam", ({ attemptId }) => {
+      if (socket.user.role !== ROLES.CANDIDATE || attemptId !== socket.data.attemptId) return;
+      io.to(`exam:${socket.data.examId}`).emit("exam:candidate-disconnected", { attemptId, candidateId: socket.user.id });
+      socket.leave(`attempt:${attemptId}`);
+      socket.leave(`exam:${socket.data.examId}`);
+      socket.data.attemptId = undefined;
+      socket.data.examId = undefined;
     });
     socket.on("examiner:join-monitoring", async ({ examId }) => {
       const permitted = socket.user.role === ROLES.SUPER_ADMIN ||
@@ -35,7 +57,10 @@ export const initializeSockets = (server) => {
     socket.on("platform:join-monitoring", () => {
       if (socket.user.role === ROLES.SUPER_ADMIN || (socket.user.role === ROLES.SUB_ADMIN && socket.user.permissions.includes(PERMISSIONS.VIEW_REPORTS))) socket.join("platform:monitoring");
     });
-    socket.on("disconnect", () => io.to("platform:monitoring").emit("exam:candidate-disconnected", { userId: socket.user.id }));
+    socket.on("disconnect", () => {
+      if (socket.data.examId) io.to(`exam:${socket.data.examId}`).emit("exam:candidate-disconnected", { attemptId: socket.data.attemptId, candidateId: socket.user.id });
+      if (socket.user.role === ROLES.CANDIDATE) io.to("platform:monitoring").emit("exam:candidate-disconnected", { userId: socket.user.id, attemptId: socket.data.attemptId, examId: socket.data.examId });
+    });
   });
   setSocketServer(io);
   return io;

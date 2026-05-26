@@ -39,6 +39,19 @@ describe("roles, attempts and anti-cheat", () => {
     await expect(userService.createUser(requestFor(actor), { fullName: "Another Admin", email: "sub2@argus.test", password: "password1", role: "SUB_ADMIN", permissions: [] })).rejects.toMatchObject({ statusCode: 403 });
   });
 
+  test("limits sub-admin user visibility and actions to delegated target roles", async () => {
+    const actor = await User.create({ fullName: "Candidate Admin", email: "delegated@argus.test", password: "password1", role: "SUB_ADMIN", permissions: ["MANAGE_CANDIDATES", "BLOCK_USERS"], status: "ACTIVE" });
+    const examiner = await User.create({ fullName: "Examiner", email: "hidden-examiner@argus.test", password: "password1", role: "EXAMINER", status: "ACTIVE" });
+    const candidate = await User.create({ fullName: "Candidate", email: "managed-candidate@argus.test", password: "password1", role: "CANDIDATE", status: "ACTIVE" });
+
+    const listed = await userService.listUsers(actor, {});
+    expect(listed.data.map((item) => item.email)).toEqual(["managed-candidate@argus.test"]);
+    await expect(userService.getUser(actor, examiner.id)).rejects.toMatchObject({ statusCode: 403 });
+    await expect(userService.setBlocked(requestFor(actor), examiner.id, true, "Not delegated")).rejects.toMatchObject({ statusCode: 403 });
+    await userService.setBlocked(requestFor(actor), candidate.id, true, "Permitted");
+    expect((await User.findById(candidate.id)).status).toBe("BLOCKED");
+  });
+
   test("sanitizes candidate questions, grades submission and auto-submits violations", async () => {
     const examiner = await User.create({ fullName: "Examiner", email: "examiner@argus.test", password: "password1", role: "EXAMINER", status: "ACTIVE" });
     const candidate = await User.create({ fullName: "Candidate", email: "candidate@argus.test", password: "password1", role: "CANDIDATE", status: "ACTIVE" });
