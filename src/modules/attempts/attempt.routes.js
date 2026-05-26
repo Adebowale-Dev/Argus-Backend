@@ -1,0 +1,18 @@
+import { Router } from "express";
+import * as controller from "./attempt.controller.js";
+import { authenticate } from "../../middlewares/auth.middleware.js";
+import { authorizeRoles } from "../../middlewares/role.middleware.js";
+import { validate } from "../../middlewares/validate.middleware.js";
+import { ROLES } from "../../constants/roles.js";
+import { startSchema, answerSchema, submitSchema, heartbeatSchema } from "./attempt.validation.js";
+const router = Router();
+router.use(authenticate);
+router.get("/candidate/exams", authorizeRoles(ROLES.CANDIDATE), controller.candidateExams);
+router.get("/candidate/exams/:examId/instructions", authorizeRoles(ROLES.CANDIDATE), controller.instructions);
+router.post("/exams/:examId/start", authorizeRoles(ROLES.CANDIDATE), validate({ body: startSchema }), controller.start);
+router.get("/attempts/:attemptId", controller.get);
+router.post("/attempts/:attemptId/save-answer", authorizeRoles(ROLES.CANDIDATE), validate({ body: answerSchema }), controller.save);
+router.post("/attempts/:attemptId/heartbeat", authorizeRoles(ROLES.CANDIDATE), validate({ body: heartbeatSchema }), controller.heartbeat);
+router.post("/attempts/:attemptId/submit", authorizeRoles(ROLES.CANDIDATE), validate({ body: submitSchema }), controller.submit);
+router.get("/attempts/:attemptId/result", authorizeRoles(ROLES.CANDIDATE), controller.result);
+export default router;

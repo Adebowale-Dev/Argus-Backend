@@ -1,0 +1,14 @@
+import { Router } from "express";
+import * as controller from "./setting.controller.js";
+import { authenticate } from "../../middlewares/auth.middleware.js";
+import { authorizeRoles } from "../../middlewares/role.middleware.js";
+import { requirePermission } from "../../middlewares/permission.middleware.js";
+import { validate } from "../../middlewares/validate.middleware.js";
+import { ROLES } from "../../constants/roles.js";
+import { PERMISSIONS } from "../../constants/permissions.js";
+import { settingUpdateSchema } from "./setting.validation.js";
+const router = Router();
+router.use(authenticate, authorizeRoles(ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN), requirePermission(PERMISSIONS.MANAGE_SETTINGS));
+router.get("/", controller.list);
+router.patch("/:key", validate({ body: settingUpdateSchema }), controller.update);
+export default router;

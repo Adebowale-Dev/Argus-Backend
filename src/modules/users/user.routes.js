@@ -1,0 +1,17 @@
+import { Router } from "express";
+import * as controller from "./user.controller.js";
+import { authenticate } from "../../middlewares/auth.middleware.js";
+import { authorizeRoles } from "../../middlewares/role.middleware.js";
+import { validate } from "../../middlewares/validate.middleware.js";
+import { ROLES } from "../../constants/roles.js";
+import { createUserSchema, updateUserSchema, roleSchema, blockSchema, passwordResetSchema } from "./user.validation.js";
+
+const router = Router();
+router.use(authenticate, authorizeRoles(ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN));
+router.route("/").get(controller.list).post(validate({ body: createUserSchema }), controller.create);
+router.route("/:id").get(controller.get).patch(validate({ body: updateUserSchema }), controller.update).delete(controller.remove);
+router.patch("/:id/block", validate({ body: blockSchema }), controller.block);
+router.patch("/:id/unblock", controller.unblock);
+router.patch("/:id/role", validate({ body: roleSchema }), controller.role);
+router.patch("/:id/password-reset", validate({ body: passwordResetSchema }), controller.passwordReset);
+export default router;

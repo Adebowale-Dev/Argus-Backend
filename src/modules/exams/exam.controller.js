@@ -1,0 +1,12 @@
+import * as service from "./exam.service.js";
+import { ApiResponse } from "../../utils/ApiResponse.js";
+import { asyncHandler } from "../../utils/asyncHandler.js";
+export const list = asyncHandler(async (req, res) => { const out = await service.list(req.user, req.query); res.json(new ApiResponse("Exams retrieved.", out.data, out.meta)); });
+export const create = asyncHandler(async (req, res) => res.status(201).json(new ApiResponse("Exam created.", await service.create(req, req.body))));
+export const get = asyncHandler(async (req, res) => res.json(new ApiResponse("Exam retrieved.", await service.get(req.user, req.params.id))));
+export const update = asyncHandler(async (req, res) => res.json(new ApiResponse("Exam updated.", await service.update(req, req.params.id, req.body))));
+export const remove = asyncHandler(async (req, res) => res.json(new ApiResponse("Exam archived.", await service.remove(req, req.params.id))));
+export const publish = asyncHandler(async (req, res) => res.json(new ApiResponse("Exam published.", await service.publish(req, req.params.id))));
+export const close = asyncHandler(async (req, res) => res.json(new ApiResponse("Exam closed.", await service.close(req, req.params.id))));
+export const assign = asyncHandler(async (req, res) => res.json(new ApiResponse("Candidates assigned.", await service.assignCandidates(req, req.params.id, req.body.candidateIds))));
+export const candidates = asyncHandler(async (req, res) => res.json(new ApiResponse("Assigned candidates retrieved.", await service.candidates(req.user, req.params.id))));

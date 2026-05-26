@@ -1,0 +1,10 @@
+import * as service from "./question.service.js";
+import { ApiResponse } from "../../utils/ApiResponse.js";
+import { asyncHandler } from "../../utils/asyncHandler.js";
+export const list = asyncHandler(async (req, res) => { const out = await service.list(req.user, req.query); res.json(new ApiResponse("Questions retrieved.", out.data, out.meta)); });
+export const create = asyncHandler(async (req, res) => res.status(201).json(new ApiResponse("Question created.", await service.create(req, req.body))));
+export const get = asyncHandler(async (req, res) => res.json(new ApiResponse("Question retrieved.", await service.get(req.user, req.params.id))));
+export const update = asyncHandler(async (req, res) => res.json(new ApiResponse("Question updated.", await service.update(req, req.params.id, req.body))));
+export const remove = asyncHandler(async (req, res) => res.json(new ApiResponse("Question deactivated.", await service.remove(req, req.params.id))));
+export const bulkImport = asyncHandler(async (req, res) => res.status(201).json(new ApiResponse("Questions imported.", await service.bulkImport(req))));
+export const attachment = asyncHandler(async (req, res) => res.status(201).json(new ApiResponse("Attachment uploaded.", await service.addAttachment(req, req.params.id, req.file))));

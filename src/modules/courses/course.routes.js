@@ -1,0 +1,14 @@
+import { Router } from "express";
+import * as controller from "./course.controller.js";
+import { authenticate } from "../../middlewares/auth.middleware.js";
+import { authorizeRoles } from "../../middlewares/role.middleware.js";
+import { requirePermission } from "../../middlewares/permission.middleware.js";
+import { validate } from "../../middlewares/validate.middleware.js";
+import { ROLES } from "../../constants/roles.js";
+import { PERMISSIONS } from "../../constants/permissions.js";
+import { courseSchema, courseUpdateSchema } from "./course.validation.js";
+const router = Router();
+router.use(authenticate, authorizeRoles(ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN), requirePermission(PERMISSIONS.MANAGE_COURSES));
+router.route("/").get(controller.list).post(validate({ body: courseSchema }), controller.create);
+router.route("/:id").get(controller.get).patch(validate({ body: courseUpdateSchema }), controller.update).delete(controller.remove);
+export default router;

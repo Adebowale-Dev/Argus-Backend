@@ -1,0 +1,8 @@
+export const ROLES = Object.freeze({
+  SUPER_ADMIN: "SUPER_ADMIN",
+  SUB_ADMIN: "SUB_ADMIN",
+  EXAMINER: "EXAMINER",
+  CANDIDATE: "CANDIDATE"
+});
+
+export const ADMIN_ROLES = [ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN];

@@ -1,0 +1,12 @@
+import { Router } from "express";
+import * as controller from "./auditLog.controller.js";
+import { authenticate } from "../../middlewares/auth.middleware.js";
+import { authorizeRoles } from "../../middlewares/role.middleware.js";
+import { requirePermission } from "../../middlewares/permission.middleware.js";
+import { ROLES } from "../../constants/roles.js";
+import { PERMISSIONS } from "../../constants/permissions.js";
+const router = Router();
+router.use(authenticate, authorizeRoles(ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN), requirePermission(PERMISSIONS.VIEW_AUDIT_LOGS));
+router.get("/", controller.list);
+router.get("/:id", controller.get);
+export default router;

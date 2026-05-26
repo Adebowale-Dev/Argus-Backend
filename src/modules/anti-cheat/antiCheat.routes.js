@@ -1,0 +1,17 @@
+import { Router } from "express";
+import * as controller from "./antiCheat.controller.js";
+import { authenticate } from "../../middlewares/auth.middleware.js";
+import { authorizeRoles } from "../../middlewares/role.middleware.js";
+import { validate } from "../../middlewares/validate.middleware.js";
+import { upload } from "../../middlewares/upload.middleware.js";
+import { ROLES } from "../../constants/roles.js";
+import { logEventSchema } from "./antiCheat.validation.js";
+const router = Router();
+router.use(authenticate);
+router.post("/attempts/:attemptId/anti-cheat/log", authorizeRoles(ROLES.CANDIDATE), validate({ body: logEventSchema }), controller.log);
+router.post("/attempts/:attemptId/snapshot", authorizeRoles(ROLES.CANDIDATE), upload.single("file"), controller.snapshot);
+router.post("/attempts/:attemptId/screenshot", authorizeRoles(ROLES.CANDIDATE), upload.single("file"), controller.screenshot);
+router.get("/attempts/:attemptId/anti-cheat/logs", controller.attemptLogs);
+router.get("/exams/:examId/anti-cheat/reports", controller.reports);
+router.get("/anti-cheat/logs/:logId/evidence-url", controller.evidenceUrl);
+export default router;
