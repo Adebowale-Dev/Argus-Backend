@@ -30,7 +30,17 @@ export const results = async (user, examId, query) => {
   await assertExamReport(user, examId);
   const { page, limit, skip, sort } = paginationParams(query);
   const [attempts, total] = await Promise.all([ExamAttempt.find({ exam: examId, status: { $in: ["SUBMITTED", "AUTO_SUBMITTED"] } }).populate("candidate", "fullName email").populate("candidateProfile", "fullName email").sort(sort).skip(skip).limit(limit), ExamAttempt.countDocuments({ exam: examId, status: { $in: ["SUBMITTED", "AUTO_SUBMITTED"] } })]);
-  const data = attempts.map((attempt) => ({ candidate: attempt.candidateProfile?.fullName || attempt.candidate?.fullName, email: attempt.candidateProfile?.email || attempt.candidate?.email, score: attempt.score, totalMarks: attempt.totalMarks, percentage: attempt.percentage, passed: attempt.passed, status: attempt.status, submittedAt: attempt.submittedAt }));
+  const data = attempts.map((attempt) => ({
+    candidate: attempt.candidateProfile?.fullName || attempt.candidate?.fullName,
+    email: attempt.candidateProfile?.email || attempt.candidate?.email,
+    accessChannel: attempt.candidate ? "ACCOUNT" : "VERIFIED_OR_PUBLIC",
+    score: attempt.score,
+    totalMarks: attempt.totalMarks,
+    percentage: attempt.percentage,
+    passed: attempt.passed,
+    status: attempt.status,
+    submittedAt: attempt.submittedAt
+  }));
   return query.format === "csv" ? { csv: csv(data) } : { data, meta: paginationMeta(page, limit, total) };
 };
 export const antiCheatCsv = async (user, examId) => {

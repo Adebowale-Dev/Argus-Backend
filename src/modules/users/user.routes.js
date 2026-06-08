@@ -9,12 +9,12 @@ import { createUserSchema, updateUserSchema, roleSchema, blockSchema, passwordRe
 const router = Router();
 router.use(authenticate);
 router.get("/", authorizeRoles(ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN, ROLES.EXAMINER), controller.list);
-router.post("/", authorizeRoles(ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN), validate({ body: createUserSchema }), controller.create);
+router.post("/", authorizeRoles(ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN, ROLES.EXAMINER), validate({ body: createUserSchema }), controller.create);
 router.get("/:id", authorizeRoles(ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN, ROLES.EXAMINER), controller.get);
-router.patch("/:id", authorizeRoles(ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN), validate({ body: updateUserSchema }), controller.update);
-router.delete("/:id", authorizeRoles(ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN), controller.remove);
-router.patch("/:id/block", authorizeRoles(ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN), validate({ body: blockSchema }), controller.block);
-router.patch("/:id/unblock", authorizeRoles(ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN), controller.unblock);
+router.patch("/:id", authorizeRoles(ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN, ROLES.EXAMINER), validate({ body: updateUserSchema }), controller.update);
+router.delete("/:id", authorizeRoles(ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN, ROLES.EXAMINER), controller.remove);
+router.patch("/:id/block", authorizeRoles(ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN, ROLES.EXAMINER), validate({ body: blockSchema }), controller.block);
+router.patch("/:id/unblock", authorizeRoles(ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN, ROLES.EXAMINER), controller.unblock);
 router.patch("/:id/role", authorizeRoles(ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN), validate({ body: roleSchema }), controller.role);
-router.patch("/:id/password-reset", authorizeRoles(ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN), validate({ body: passwordResetSchema }), controller.passwordReset);
+router.patch("/:id/password-reset", authorizeRoles(ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN, ROLES.EXAMINER), validate({ body: passwordResetSchema }), controller.passwordReset);
 export default router;

@@ -16,15 +16,25 @@ const customCandidateField = z.object({
   placeholder: z.string().optional(),
   required: z.boolean().default(false),
 });
+const inviteSchema = z.object({
+  email: z.string().email(),
+  fullName: z.string().min(2).optional(),
+  identifier: z.string().min(1).optional(),
+  metadata: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).optional(),
+});
+const inviteCandidatesSchema = z.object({
+  candidates: z.array(inviteSchema).min(1),
+});
 const examFields = z.object({
   title: z.string().min(2), code: z.string().min(2).optional(), questionBank: z.string(),
-  description: z.string().optional(), instructions: z.string().min(2).optional(),
+  description: z.string().optional(), instructions: z.string().min(2),
   durationMinutes: z.number().int().positive(), startTime: z.coerce.date().optional(), endTime: z.coerce.date().optional(),
   availabilityMode: z.enum(["ALWAYS_OPEN", "SCHEDULED", "CLOSED_MANUALLY"]).default("ALWAYS_OPEN"),
   accessType: z.enum(["PUBLIC_LINK_WITH_CODE", "LOGIN_REQUIRED_WITH_CODE", "INVITE_ONLY"]).default("PUBLIC_LINK_WITH_CODE"),
   candidateIdentityRequirements: z.object({ fullName: z.boolean().default(true), email: z.boolean().default(true), phone: z.boolean().default(false), identifier: z.boolean().default(false), customFields: z.array(customCandidateField).default([]) }).default({ fullName: true, email: true, phone: false, identifier: false, customFields: [] }),
+  invites: z.array(inviteSchema).default([]),
   questions: z.array(z.string()).min(1),
-  passMark: z.number().nonnegative(), randomizeQuestions: z.boolean().default(false),
+  passMark: z.number().nonnegative().optional(), randomizeQuestions: z.boolean().default(false),
   randomizeOptions: z.boolean().default(false), allowBackwardNavigation: z.boolean().default(true), showResultImmediately: z.boolean().default(false),
   maxAttempts: z.number().int().positive().default(1), maxAttemptsPerCandidate: z.number().int().positive().default(1), antiCheatSettings: antiCheat
 });
@@ -33,3 +43,5 @@ export const examSchema = examFields
   .refine((value) => !value.startTime || !value.endTime || value.endTime > value.startTime, { message: "End time must be after start time.", path: ["endTime"] });
 export const examUpdateSchema = examFields.partial().refine((value) => !value.startTime || !value.endTime || value.endTime > value.startTime, { message: "End time must be after start time.", path: ["endTime"] });
 export const assignCandidatesSchema = z.object({ candidateIds: z.array(z.string()).min(1) });
+export const inviteListSchema = z.object({ invites: z.array(inviteSchema).min(1) });
+export const createInviteSchema = inviteCandidatesSchema;

@@ -5,13 +5,14 @@ import { generateSlug } from "../../utils/generateSlug.js";
 import { hashAccessCode } from "../../utils/hashAccessCode.js";
 import { Exam } from "./exam.model.js";
 
-export const buildPublicUrl = (slug) => `${env.PUBLIC_EXAM_URL.replace(/\/$/, "")}/${slug}`;
+export const buildPublicUrl = (_slug, examCode) => `${env.PUBLIC_EXAM_URL.replace(/\/$/, "")}?code=${examCode}`;
 
 export const ensureExamLink = async (exam) => {
+  if (!exam.code) await ensureExamCode(exam);
   if (!exam.publicSlug) {
     exam.publicSlug = generateSlug(exam.title);
   }
-  exam.publicUrl = buildPublicUrl(exam.publicSlug);
+  exam.publicUrl = buildPublicUrl(exam.publicSlug, exam.code);
   return exam;
 };
 
@@ -36,7 +37,8 @@ export const generateExamCode = (exam) => {
 };
 
 export const regenerateExamLink = async (exam) => {
+  if (!exam.code) await ensureExamCode(exam);
   exam.publicSlug = generateSlug(exam.title);
-  exam.publicUrl = buildPublicUrl(exam.publicSlug);
+  exam.publicUrl = buildPublicUrl(exam.publicSlug, exam.code);
   return exam;
 };

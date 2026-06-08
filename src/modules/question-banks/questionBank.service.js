@@ -33,7 +33,14 @@ export const create = async (req, input) => {
 export const get = async (user, id) => {
   const bank = await QuestionBank.findOne({ _id: id, ...scope(user) }).populate("owner", "fullName email");
   if (!bank) throw new ApiError(404, "Question bank not found.");
-  return bank;
+  const questions = await Question.find({ questionBank: id, status: { $ne: "INACTIVE" } })
+    .select("+correctAnswer")
+    .sort({ createdAt: -1 });
+  return {
+    ...bank.toObject(),
+    questionCount: questions.length,
+    questions,
+  };
 };
 
 export const update = async (req, id, input) => {

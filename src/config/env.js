@@ -15,7 +15,7 @@ const schema = z.object({
   MONGODB_URI: z.string().min(1),
   REDIS_URL: z.string().min(1),
   REDIS_REQUIRE_NOEVICTION: booleanValue,
-  ALLOW_EXAMINER_SELF_REGISTRATION: booleanValue.default("true"),
+  ALLOW_EXAMINER_SELF_REGISTRATION: booleanValue.default("false"),
   JWT_ACCESS_SECRET: z.string().min(32),
   JWT_REFRESH_SECRET: z.string().min(32),
   JWT_ATTEMPT_SECRET: z.string().min(32).default("replace_with_strong_exam_attempt_secret_32_chars"),

@@ -32,6 +32,12 @@ export const generateAttemptToken = (attempt) => jwt.sign(
   { ...jwtOptions, expiresIn: env.JWT_ATTEMPT_EXPIRES_IN, jwtid: crypto.randomUUID() }
 );
 export const verifyAttemptToken = (token) => assertType(jwt.verify(token, env.JWT_ATTEMPT_SECRET, jwtOptions), "attempt");
+export const generateEmailVerificationToken = ({ examId, inviteId, email }) => jwt.sign(
+  { sub: String(inviteId), exam: String(examId), email: String(email).toLowerCase(), type: "email_verification" },
+  env.JWT_EXAM_ACCESS_SECRET,
+  { ...jwtOptions, expiresIn: "30m", jwtid: crypto.randomUUID() }
+);
+export const verifyEmailVerificationToken = (token) => assertType(jwt.verify(token, env.JWT_EXAM_ACCESS_SECRET, jwtOptions), "email_verification");
 export const tokenRemainingMs = (token) => {
   const payload = jwt.decode(token);
   return payload?.exp ? Math.max(payload.exp * 1000 - Date.now(), 0) : undefined;

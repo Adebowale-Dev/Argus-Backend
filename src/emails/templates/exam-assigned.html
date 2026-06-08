@@ -1,1 +1,28 @@
-<h2 style="margin-top:0">New exam assigned</h2><p>Hello {{fullName}}, you have been assigned <strong>{{examTitle}}</strong>.</p><p>Scheduled start: {{startTime}}</p>
+<h2 style="margin-top:0">You have been added to an exam</h2>
+<p>Hello {{fullName}},</p>
+<p>You have been added to <strong>{{examTitle}}</strong> on {{appName}}. Please review the details below carefully so you can start without any issues.</p>
+
+<div style="margin:20px 0;padding:16px;border:1px solid #d9e2ec;border-radius:12px;background:#f8fafc">
+  <p style="margin:0 0 8px"><strong>Exam:</strong> {{examTitle}}</p>
+  <p style="margin:0 0 8px"><strong>Exam code:</strong> {{examCode}}</p>
+  <p style="margin:0 0 8px"><strong>Access mode:</strong> {{accessModeLabel}}</p>
+  <p style="margin:0 0 8px"><strong>Exam link:</strong> <a href="{{examLink}}">{{examLink}}</a></p>
+  <p style="margin:0 0 8px"><strong>Duration:</strong> {{durationMinutes}} minutes</p>
+  <p style="margin:0 0 8px"><strong>Starts:</strong> {{startTimeText}}</p>
+  <p style="margin:0"><strong>Ends:</strong> {{endTimeText}}</p>
+</div>
+
+<p><strong>How to access your exam</strong></p>
+<p>{{accessInstructions}}</p>
+
+<p><strong>Before you begin</strong></p>
+<ul style="padding-left:18px;margin:8px 0">
+  <li>Use the exam link above and keep your exam code ready.</li>
+  <li>Make sure you use a stable internet connection and a laptop or desktop device.</li>
+  <li>Read the exam instructions on the start page before launching the secure session.</li>
+</ul>
+
+<p><strong>Exam instructions</strong></p>
+<p style="white-space:pre-line">{{instructions}}</p>
+
+<p>If you run into any issue before the exam, contact <a href="mailto:{{supportEmail}}">{{supportEmail}}</a>.</p>

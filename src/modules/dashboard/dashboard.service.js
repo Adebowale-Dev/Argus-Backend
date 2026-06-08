@@ -3,6 +3,7 @@ import { Exam } from "../exams/exam.model.js";
 import { QuestionBank } from "../question-banks/questionBank.model.js";
 import { ExamAttempt } from "../attempts/attempt.model.js";
 import { User } from "../users/user.model.js";
+import { ExamInvite } from "../exam-invites/examInvite.model.js";
 import { ROLES } from "../../constants/roles.js";
 import { PERMISSIONS } from "../../constants/permissions.js";
 import { ApiError } from "../../utils/ApiError.js";
@@ -13,16 +14,26 @@ export const adminDashboard = async (user) => {
   if (user.role === ROLES.SUB_ADMIN && !user.permissions.includes(PERMISSIONS.VIEW_DASHBOARD)) {
     throw new ApiError(403, "Required dashboard permission is missing.");
   }
-  const [activeUsers, totalExams, totalAttempts, antiCheatEvents, flaggedAttempts, recentExams] = await Promise.all([
+  const [activeUsers, totalExams, totalAttempts, antiCheatEvents, totalInvites, verifiedInvites, flaggedAttempts, recentExams, examStatusCounts] = await Promise.all([
     User.countDocuments({ status: "ACTIVE" }),
     Exam.countDocuments(),
     ExamAttempt.countDocuments(),
     AntiCheatLog.countDocuments(),
+    ExamInvite.countDocuments(),
+    ExamInvite.countDocuments({ status: { $in: ["VERIFIED", "STARTED", "COMPLETED"] } }),
     ExamAttempt.find({ violationScore: { $gt: 0 } }).populate("exam", "title code").populate("candidateProfile", "fullName email").populate("candidate", "fullName email").sort("-updatedAt").limit(5),
     Exam.find({}).sort("-createdAt").select("title code status createdAt publicUrl").limit(5),
+    Exam.aggregate([{ $group: { _id: "$status", total: { $sum: 1 } } }]),
   ]);
   return {
-    summary: { activeUsers, totalExams, totalAttempts, antiCheatEvents },
+    summary: { activeUsers, totalExams, totalAttempts, antiCheatEvents, totalInvites, verifiedInvites },
+    charts: {
+      examStatus: examStatusCounts.map((item) => ({ status: item._id, total: item.total })),
+      inviteFunnel: [
+        { label: "Approved", total: Math.max(totalInvites - verifiedInvites, 0) },
+        { label: "Verified", total: verifiedInvites },
+      ],
+    },
     recentFlaggedAttempts: flaggedAttempts.map((attempt) => ({
       id: attempt.id,
       examTitle: attempt.exam?.title,
@@ -47,16 +58,22 @@ export const adminDashboard = async (user) => {
 export const examinerDashboard = async (user) => {
   const ownedExamFilter = { createdBy: user._id };
   const ownedExamIds = (await Exam.find(ownedExamFilter).select("_id")).map((exam) => exam._id);
-  const [questionBanks, totalExams, publishedExams, activeAttempts, flaggedAttempts, recentExams] = await Promise.all([
+  const [questionBanks, totalExams, publishedExams, activeAttempts, flaggedAttempts, recentExams, inviteCounts, outcomeCounts] = await Promise.all([
     QuestionBank.countDocuments({ owner: user._id }),
     Exam.countDocuments(ownedExamFilter),
     Exam.countDocuments({ ...ownedExamFilter, ...examVisibilityFilter }),
     ExamAttempt.countDocuments({ exam: { $in: ownedExamIds }, status: "IN_PROGRESS" }),
     ExamAttempt.countDocuments({ exam: { $in: ownedExamIds }, violationScore: { $gt: 0 } }),
     Exam.find(ownedExamFilter).sort("-createdAt").select("title code status createdAt publicUrl").limit(5),
+    ExamInvite.aggregate([{ $match: { owner: user._id } }, { $group: { _id: "$status", total: { $sum: 1 } } }]),
+    ExamAttempt.aggregate([{ $match: { exam: { $in: ownedExamIds }, status: { $in: ["SUBMITTED", "AUTO_SUBMITTED"] } } }, { $group: { _id: "$passed", total: { $sum: 1 } } }]),
   ]);
   return {
     summary: { questionBanks, totalExams, publishedExams, activeAttempts, flaggedAttempts },
+    charts: {
+      invites: inviteCounts.map((item) => ({ status: item._id, total: item.total })),
+      outcomes: outcomeCounts.map((item) => ({ outcome: item._id ? "Passed" : "Failed", total: item.total })),
+    },
     recentExams: recentExams.map((exam) => ({
       id: exam.id,
       title: exam.title,

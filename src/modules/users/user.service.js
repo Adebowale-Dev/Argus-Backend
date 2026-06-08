@@ -8,11 +8,19 @@ import { sendAccountBlockedEmail, sendAdminCreatedEmail, sendCandidateCreatedEma
 
 const assertManageTarget = (actor, targetRole) => {
   if (actor.role === ROLES.SUPER_ADMIN) return;
+  if (actor.role === ROLES.EXAMINER) {
+    if (targetRole !== ROLES.CANDIDATE) throw new ApiError(403, "Examiners can only manage candidate accounts.");
+    return;
+  }
   if (actor.role !== ROLES.SUB_ADMIN) throw new ApiError(403, "User management is restricted.");
   if ([ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN].includes(targetRole)) throw new ApiError(403, "Sub-admins cannot manage administrator accounts.");
 };
 const assertPermissionForRole = (actor, role) => {
   if (actor.role === ROLES.SUPER_ADMIN) return;
+  if (actor.role === ROLES.EXAMINER) {
+    if (role !== ROLES.CANDIDATE) throw new ApiError(403, "Examiners can only manage candidate accounts.");
+    return;
+  }
   const needed = role === ROLES.EXAMINER ? PERMISSIONS.MANAGE_EXAMINERS : PERMISSIONS.MANAGE_CANDIDATES;
   if (!actor.permissions.includes(needed)) throw new ApiError(403, "Required user management permission is missing.");
 };
@@ -35,6 +43,7 @@ export const listUsers = async (actor, query) => {
     if (query.role && !permittedRoles.includes(query.role)) return { data: [], meta: paginationMeta(page, limit, 0) };
     filter.role = query.role && permittedRoles.includes(query.role) ? query.role : { $in: permittedRoles };
   }
+  if (actor.role === ROLES.EXAMINER) filter.createdBy = actor._id;
   if (query.status) filter.status = query.status;
   if (query.role && !permittedRoles) filter.role = query.role;
   if (query.search) filter.$or = [{ fullName: new RegExp(query.search, "i") }, { email: new RegExp(query.search, "i") }, { username: new RegExp(query.search, "i") }];
@@ -45,7 +54,7 @@ export const getUser = async (actor, id) => {
   const user = await User.findById(id);
   if (!user) throw new ApiError(404, "User not found.");
   if (actor.role === ROLES.EXAMINER) {
-    if (user.role !== ROLES.CANDIDATE) throw new ApiError(403, "Examiners can only view candidate accounts.");
+    if (user.role !== ROLES.CANDIDATE || String(user.createdBy) !== String(actor._id)) throw new ApiError(403, "Examiners can only view candidate accounts they created.");
     return user;
   }
   assertManageTarget(actor, user.role);
@@ -56,6 +65,7 @@ export const createUser = async (req, input) => {
   assertManageTarget(req.user, input.role);
   assertPermissionForRole(req.user, input.role);
   if (input.role === ROLES.SUPER_ADMIN && req.user.role !== ROLES.SUPER_ADMIN) throw new ApiError(403, "Only a super admin may create administrators.");
+  if (req.user.role === ROLES.EXAMINER && input.role !== ROLES.CANDIDATE) throw new ApiError(403, "Examiners can only create candidate accounts.");
   if (input.role !== ROLES.SUB_ADMIN) input.permissions = [];
   const user = await User.create({ ...input, createdBy: req.user._id, mustChangePassword: true });
   const mails = { [ROLES.SUPER_ADMIN]: sendAdminCreatedEmail, [ROLES.SUB_ADMIN]: sendSubAdminCreatedEmail, [ROLES.EXAMINER]: sendExaminerCreatedEmail, [ROLES.CANDIDATE]: sendCandidateCreatedEmail };
@@ -66,6 +76,7 @@ export const createUser = async (req, input) => {
 export const updateUser = async (req, id, input) => {
   const user = await User.findById(id);
   if (!user) throw new ApiError(404, "User not found.");
+  if (req.user.role === ROLES.EXAMINER && String(user.createdBy) !== String(req.user._id)) throw new ApiError(403, "You can only edit candidate accounts you created.");
   assertManageTarget(req.user, user.role);
   assertPermissionForRole(req.user, user.role);
   if (input.permissions && (user.role !== ROLES.SUB_ADMIN || req.user.role !== ROLES.SUPER_ADMIN)) throw new ApiError(403, "Only super admins assign sub-admin permissions.");
@@ -89,6 +100,7 @@ export const setBlocked = async (req, id, blocked, reason) => {
   const user = await User.findById(id);
   if (!user) throw new ApiError(404, "User not found.");
   if (String(user._id) === String(req.user._id)) throw new ApiError(400, "You cannot block your own account.");
+  if (req.user.role === ROLES.EXAMINER && String(user.createdBy) !== String(req.user._id)) throw new ApiError(403, "You can only block candidate accounts you created.");
   assertManageTarget(req.user, user.role);
   assertPermissionForRole(req.user, user.role);
   if (req.user.role === ROLES.SUB_ADMIN && !req.user.permissions.includes(PERMISSIONS.BLOCK_USERS)) throw new ApiError(403, "Required block permission is missing.");
@@ -106,6 +118,7 @@ export const deleteUser = async (req, id) => {
   if (String(id) === String(req.user._id)) throw new ApiError(400, "You cannot delete your own account.");
   const user = await User.findById(id);
   if (!user) throw new ApiError(404, "User not found.");
+  if (req.user.role === ROLES.EXAMINER && String(user.createdBy) !== String(req.user._id)) throw new ApiError(403, "You can only delete candidate accounts you created.");
   assertManageTarget(req.user, user.role);
   assertPermissionForRole(req.user, user.role);
   user.status = "DELETED";
@@ -116,6 +129,7 @@ export const deleteUser = async (req, id) => {
 export const resetUserPassword = async (req, id, password) => {
   const user = await User.findById(id).select("+password");
   if (!user) throw new ApiError(404, "User not found.");
+  if (req.user.role === ROLES.EXAMINER && String(user.createdBy) !== String(req.user._id)) throw new ApiError(403, "You can only reset candidate passwords for accounts you created.");
   assertManageTarget(req.user, user.role);
   assertPermissionForRole(req.user, user.role);
   if (req.user.role === ROLES.SUB_ADMIN && !req.user.permissions.includes(PERMISSIONS.RESET_USER_PASSWORDS)) throw new ApiError(403, "Required reset permission is missing.");

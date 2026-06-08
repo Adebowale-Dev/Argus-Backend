@@ -6,7 +6,9 @@ export const create = asyncHandler(async (req, res) => res.status(201).json(new 
 export const get = asyncHandler(async (req, res) => res.json(new ApiResponse("Exam retrieved.", await service.get(req.user, req.params.id))));
 export const update = asyncHandler(async (req, res) => res.json(new ApiResponse("Exam updated.", await service.update(req, req.params.id, req.body))));
 export const remove = asyncHandler(async (req, res) => res.json(new ApiResponse("Exam archived.", await service.remove(req, req.params.id))));
+export const hardDelete = asyncHandler(async (req, res) => res.json(new ApiResponse("Exam permanently deleted.", await service.hardDelete(req, req.params.id))));
 export const publish = asyncHandler(async (req, res) => res.json(new ApiResponse("Exam published.", await service.publish(req, req.params.id))));
+export const unpublish = asyncHandler(async (req, res) => res.json(new ApiResponse("Exam unpublished.", await service.unpublish(req, req.params.id))));
 export const close = asyncHandler(async (req, res) => res.json(new ApiResponse("Exam closed.", await service.close(req, req.params.id))));
 export const disable = asyncHandler(async (req, res) => res.json(new ApiResponse("Exam disabled.", await service.disable(req, req.params.id, req.body?.reason))));
 export const regenerateAccessCode = asyncHandler(async (req, res) => res.json(new ApiResponse("Exam access code regenerated.", await service.regenerateAccessCode(req, req.params.id))));
@@ -19,3 +21,13 @@ export const attempts = asyncHandler(async (req, res) => {
 export const reports = attempts;
 export const assign = asyncHandler(async (req, res) => res.json(new ApiResponse("Candidates assigned.", await service.assignCandidates(req, req.params.id, req.body.candidateIds))));
 export const candidates = asyncHandler(async (req, res) => res.json(new ApiResponse("Assigned candidates retrieved.", await service.candidates(req.user, req.params.id))));
+export const invites = asyncHandler(async (req, res) => res.json(new ApiResponse("Exam invite list retrieved.", await service.listInvites(req.user, req.params.id))));
+export const createInvites = asyncHandler(async (req, res) => res.status(201).json(new ApiResponse("Exam invite list updated.", await service.createInvites(req, req.params.id, req.body.candidates))));
+export const replaceInvites = asyncHandler(async (req, res) => res.json(new ApiResponse("Exam invite list updated.", await service.replaceInvites(req, req.params.id, req.body.invites))));
+export const removeInvite = asyncHandler(async (req, res) => res.json(new ApiResponse("Exam invite removed.", await service.removeInvite(req, req.params.id, req.params.inviteId))));
+export const exportInvites = asyncHandler(async (req, res) => {
+  const csv = await service.exportInvites(req.user, req.params.id);
+  res.setHeader("Content-Type", "text/csv; charset=utf-8");
+  res.setHeader("Content-Disposition", `attachment; filename="exam-invites-${req.params.id}.csv"`);
+  res.status(200).send(csv);
+});

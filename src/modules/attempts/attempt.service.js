@@ -1,6 +1,7 @@
 import { ExamAttempt } from "./attempt.model.js";
 import { Exam } from "../exams/exam.model.js";
 import { Question } from "../question-bank/question.model.js";
+import { ExamInvite } from "../exam-invites/examInvite.model.js";
 import { ROLES } from "../../constants/roles.js";
 import { PERMISSIONS } from "../../constants/permissions.js";
 import { ApiError } from "../../utils/ApiError.js";
@@ -170,6 +171,13 @@ export const finalizeAttempt = async (req, id, submissionType, reason, suppliedA
     passed: score >= exam.passMark, autoSubmitReason: reason
   }, { new: true });
   if (!updated) return ExamAttempt.findById(id);
+  const populatedAttempt = updated.candidateProfile ? await updated.populate("candidateProfile", "email") : updated;
+  if (populatedAttempt.candidateProfile?.email) {
+    await ExamInvite.findOneAndUpdate(
+      { exam: exam._id, email: populatedAttempt.candidateProfile.email.toLowerCase() },
+      { status: "COMPLETED", consumedAt: new Date(), lastUsedAt: new Date() },
+    );
+  }
   if (req?.user) await recordAudit(req, status === "SUBMITTED" ? "ATTEMPT_SUBMITTED" : "ATTEMPT_AUTO_SUBMITTED", "ExamAttempt", updated._id, reason || "Attempt submitted");
   const candidate = req?.user?.role === ROLES.CANDIDATE ? req.user : null;
   if (candidate && status === "SUBMITTED") await sendExamSubmittedEmail(candidate, exam, updated);

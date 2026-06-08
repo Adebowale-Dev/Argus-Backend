@@ -13,7 +13,6 @@ const schema = new mongoose.Schema({
   options: { type: [optionSchema], required: true },
   correctAnswer: { type: [String], required: true, select: false },
   marks: { type: Number, min: 0, default: 1 },
-  difficulty: { type: String, enum: ["EASY", "MEDIUM", "HARD"], default: "MEDIUM" },
   topic: String,
   tags: [{ type: String, trim: true }],
   explanation: String,

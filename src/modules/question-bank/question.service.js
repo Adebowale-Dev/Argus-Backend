@@ -34,7 +34,6 @@ const normalizeCsvRow = (row) => ({
   options: parseJsonArray(row.options),
   correctAnswer: parseJsonArray(row.correctAnswer || row.correctanswer || row.correct_answer),
   marks: row.marks,
-  difficulty: row.difficulty,
   topic: row.topic,
   tags: parseTags(row.tags),
   explanation: row.explanation,
@@ -79,10 +78,14 @@ const scope = (user) => user.role === ROLES.EXAMINER ? { $or: [{ owner: user._id
 export const list = async (user, query) => {
   const { page, limit, skip, sort } = paginationParams(query);
   const filter = { ...scope(user) };
-  for (const key of ["questionBank", "topic", "difficulty", "status", "questionType"]) if (query[key]) filter[key] = query[key];
+  for (const key of ["questionBank", "topic", "status", "questionType"]) if (query[key]) filter[key] = query[key];
   if (query.bank) filter.questionBank = query.bank;
   if (query.tag) filter.tags = query.tag;
-  const [data, total] = await Promise.all([Question.find(filter).sort(sort).skip(skip).limit(limit), Question.countDocuments(filter)]);
+  const questionQuery = Question.find(filter).sort(sort).skip(skip).limit(limit);
+  if (user.role === ROLES.EXAMINER || user.role === ROLES.SUPER_ADMIN || user.role === ROLES.SUB_ADMIN) {
+    questionQuery.select("+correctAnswer");
+  }
+  const [data, total] = await Promise.all([questionQuery, Question.countDocuments(filter)]);
   return { data, meta: paginationMeta(page, limit, total) };
 };
 export const create = async (req, input) => {
@@ -99,12 +102,33 @@ export const get = async (user, id) => {
 };
 export const update = async (req, id, input) => {
   if (input.questionBank) await assertQuestionBankAccess(req.user, input.questionBank);
+  const existing = await Question.findOne({ _id: id, ...scope(req.user) }).select("questionBank status");
+  if (!existing) throw new ApiError(404, "Question not found.");
   const item = await Question.findOneAndUpdate({ _id: id, ...scope(req.user) }, input, { new: true, runValidators: true }).select("+correctAnswer");
   if (!item) throw new ApiError(404, "Question not found.");
+  if (input.questionBank && String(existing.questionBank || "") !== String(input.questionBank)) {
+    if (existing.questionBank) await QuestionBank.findByIdAndUpdate(existing.questionBank, { $inc: { questionCount: -1 } });
+    await QuestionBank.findByIdAndUpdate(input.questionBank, { $inc: { questionCount: 1 } });
+  }
   await recordAudit(req, "QUESTION_UPDATED", "Question", item._id, "Updated question");
   return item;
 };
-export const remove = async (req, id) => update(req, id, { status: "INACTIVE" });
+export const remove = async (req, id) => {
+  const existing = await Question.findOne({ _id: id, ...scope(req.user) }).select("questionBank status");
+  if (!existing) throw new ApiError(404, "Question not found.");
+  if (existing.status === "INACTIVE") return existing;
+  const item = await Question.findOneAndUpdate(
+    { _id: id, ...scope(req.user) },
+    { status: "INACTIVE" },
+    { new: true, runValidators: true },
+  ).select("+correctAnswer");
+  if (!item) throw new ApiError(404, "Question not found.");
+  if (existing.questionBank) {
+    await QuestionBank.findByIdAndUpdate(existing.questionBank, { $inc: { questionCount: -1 } });
+  }
+  await recordAudit(req, "QUESTION_UPDATED", "Question", item._id, "Deactivated question");
+  return item;
+};
 export const addAttachment = async (req, id, file) => {
   if (!file) throw new ApiError(400, "A question attachment file is required.");
   const item = await get(req.user, id);
@@ -131,7 +155,6 @@ export const previewBulkImport = async (req) => {
     questionText: item.questionText,
     questionType: item.questionType,
     marks: item.marks,
-    difficulty: item.difficulty,
     topic: item.topic,
     optionCount: item.options.length,
     correctAnswer: item.correctAnswer,
@@ -150,7 +173,6 @@ export const cloneQuestions = async (req, input) => {
     options: question.options,
     correctAnswer: question.correctAnswer,
     marks: question.marks,
-    difficulty: question.difficulty,
     topic: question.topic,
     tags: question.tags,
     explanation: question.explanation,
@@ -166,10 +188,10 @@ export const cloneQuestions = async (req, input) => {
 };
 
 export const importTemplate = () => [
-  "questionText,questionType,options,correctAnswer,marks,difficulty,topic,tags,explanation",
-  "\"What does ARGUS primarily provide?\",SINGLE_SELECT,\"[{\"\"key\"\":\"\"A\"\",\"\"text\"\":\"\"A secure online exam platform\"\"},{\"\"key\"\":\"\"B\"\",\"\"text\"\":\"\"A social media dashboard\"\"},{\"\"key\"\":\"\"C\"\",\"\"text\"\":\"\"A file hosting service\"\"}]\",\"[\"\"A\"\"]\",1,EASY,Platform,\"argus,basics\",\"ARGUS is built for secure online examinations.\"",
-  "\"Which actions can trigger anti-cheat monitoring during an exam?\",MULTIPLE_CHOICE,\"[{\"\"key\"\":\"\"A\"\",\"\"text\"\":\"\"Tab switching\"\"},{\"\"key\"\":\"\"B\"\",\"\"text\"\":\"\"Fullscreen exit\"\"},{\"\"key\"\":\"\"C\"\",\"\"text\"\":\"\"Typing an answer\"\"},{\"\"key\"\":\"\"D\"\",\"\"text\"\":\"\"Copy attempt\"\"}]\",\"[\"\"A\"\",\"\"B\"\",\"\"D\"\"]\",3,MEDIUM,Anti-Cheat,\"monitoring,integrity\",\"Tab switching, fullscreen exit, and copy attempts can all be monitored.\"",
-  "\"A candidate can submit an exam manually before the timer expires.\",TRUE_FALSE,\"[{\"\"key\"\":\"\"A\"\",\"\"text\"\":\"\"True\"\"},{\"\"key\"\":\"\"B\"\",\"\"text\"\":\"\"False\"\"}]\",\"[\"\"A\"\"]\",1,EASY,Attempts,\"candidate,submission\",\"Candidates may submit before time runs out unless the session is already closed.\"",
-  "\"Which field is commonly required before a public exam attempt starts?\",SINGLE_SELECT,\"[{\"\"key\"\":\"\"A\"\",\"\"text\"\":\"\"Favorite color\"\"},{\"\"key\"\":\"\"B\"\",\"\"text\"\":\"\"Candidate identity details\"\"},{\"\"key\"\":\"\"C\"\",\"\"text\"\":\"\"Operating system license key\"\"}]\",\"[\"\"B\"\"]\",2,MEDIUM,Candidate Intake,\"identity,public-exam\",\"Public exam flows often collect identity details like name or email.\"",
-  "\"Select the valid examiner workflows in ARGUS.\",MULTIPLE_CHOICE,\"[{\"\"key\"\":\"\"A\"\",\"\"text\"\":\"\"Create a question bank\"\"},{\"\"key\"\":\"\"B\"\",\"\"text\"\":\"\"Publish an exam\"\"},{\"\"key\"\":\"\"C\"\",\"\"text\"\":\"\"View attempt reports\"\"},{\"\"key\"\":\"\"D\"\",\"\"text\"\":\"\"Promote users to super admin\"\"}]\",\"[\"\"A\"\",\"\"B\"\",\"\"C\"\"]\",4,HARD,Exam Management,\"examiner,workflow\",\"Examiners can create banks, publish exams, and review attempts, but cannot promote super admins.\"",
+  "questionText,questionType,options,correctAnswer,marks,topic,tags,explanation",
+  "\"What does ARGUS primarily provide?\",SINGLE_SELECT,\"[{\"\"key\"\":\"\"A\"\",\"\"text\"\":\"\"A secure online exam platform\"\"},{\"\"key\"\":\"\"B\"\",\"\"text\"\":\"\"A social media dashboard\"\"},{\"\"key\"\":\"\"C\"\",\"\"text\"\":\"\"A file hosting service\"\"}]\",\"[\"\"A\"\"]\",1,Platform,\"argus,basics\",\"ARGUS is built for secure online examinations.\"",
+  "\"Which actions can trigger anti-cheat monitoring during an exam?\",MULTIPLE_CHOICE,\"[{\"\"key\"\":\"\"A\"\",\"\"text\"\":\"\"Tab switching\"\"},{\"\"key\"\":\"\"B\"\",\"\"text\"\":\"\"Fullscreen exit\"\"},{\"\"key\"\":\"\"C\"\",\"\"text\"\":\"\"Typing an answer\"\"},{\"\"key\"\":\"\"D\"\",\"\"text\"\":\"\"Copy attempt\"\"}]\",\"[\"\"A\"\",\"\"B\"\",\"\"D\"\"]\",3,Anti-Cheat,\"monitoring,integrity\",\"Tab switching, fullscreen exit, and copy attempts can all be monitored.\"",
+  "\"A candidate can submit an exam manually before the timer expires.\",TRUE_FALSE,\"[{\"\"key\"\":\"\"A\"\",\"\"text\"\":\"\"True\"\"},{\"\"key\"\":\"\"B\"\",\"\"text\"\":\"\"False\"\"}]\",\"[\"\"A\"\"]\",1,Attempts,\"candidate,submission\",\"Candidates may submit before time runs out unless the session is already closed.\"",
+  "\"Which field is commonly required before a public exam attempt starts?\",SINGLE_SELECT,\"[{\"\"key\"\":\"\"A\"\",\"\"text\"\":\"\"Favorite color\"\"},{\"\"key\"\":\"\"B\"\",\"\"text\"\":\"\"Candidate identity details\"\"},{\"\"key\"\":\"\"C\"\",\"\"text\"\":\"\"Operating system license key\"\"}]\",\"[\"\"B\"\"]\",2,Candidate Intake,\"identity,public-exam\",\"Public exam flows often collect identity details like name or email.\"",
+  "\"Select the valid examiner workflows in ARGUS.\",MULTIPLE_CHOICE,\"[{\"\"key\"\":\"\"A\"\",\"\"text\"\":\"\"Create a question bank\"\"},{\"\"key\"\":\"\"B\"\",\"\"text\"\":\"\"Publish an exam\"\"},{\"\"key\"\":\"\"C\"\",\"\"text\"\":\"\"View attempt reports\"\"},{\"\"key\"\":\"\"D\"\",\"\"text\"\":\"\"Promote users to super admin\"\"}]\",\"[\"\"A\"\",\"\"B\"\",\"\"C\"\"]\",4,Exam Management,\"examiner,workflow\",\"Examiners can create banks, publish exams, and review attempts, but cannot promote super admins.\"",
 ].join("\n");
