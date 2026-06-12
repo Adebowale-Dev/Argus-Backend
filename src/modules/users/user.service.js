@@ -67,7 +67,8 @@ export const createUser = async (req, input) => {
   if (input.role === ROLES.SUPER_ADMIN && req.user.role !== ROLES.SUPER_ADMIN) throw new ApiError(403, "Only a super admin may create administrators.");
   if (req.user.role === ROLES.EXAMINER && input.role !== ROLES.CANDIDATE) throw new ApiError(403, "Examiners can only create candidate accounts.");
   if (input.role !== ROLES.SUB_ADMIN) input.permissions = [];
-  const user = await User.create({ ...input, createdBy: req.user._id, mustChangePassword: true });
+  const mustChangePassword = [ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN].includes(input.role);
+  const user = await User.create({ ...input, createdBy: req.user._id, mustChangePassword });
   const mails = { [ROLES.SUPER_ADMIN]: sendAdminCreatedEmail, [ROLES.SUB_ADMIN]: sendSubAdminCreatedEmail, [ROLES.EXAMINER]: sendExaminerCreatedEmail, [ROLES.CANDIDATE]: sendCandidateCreatedEmail };
   await Promise.all([sendWelcomeEmail(user), mails[user.role](user, input.password)]);
   await recordAudit(req, "USER_CREATED", "User", user._id, `Created ${user.role} account`);
