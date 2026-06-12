@@ -1,4 +1,4 @@
-import { Router } from "express";
+﻿import { Router } from "express";
 import * as controller from "./report.controller.js";
 import { authenticate } from "../../middlewares/auth.middleware.js";
 import { authorizeRoles } from "../../middlewares/role.middleware.js";
@@ -9,6 +9,8 @@ const router = Router();
 router.use(authenticate, authorizeRoles(ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN, ROLES.EXAMINER));
 router.use((req, res, next) => req.user.role === ROLES.SUB_ADMIN ? requirePermission(PERMISSIONS.VIEW_REPORTS)(req, res, next) : next());
 router.get("/dashboard", controller.dashboard);
+router.get("/examiner/overview", authorizeRoles(ROLES.EXAMINER), controller.examinerOverview);
 router.get("/exams/:examId/results", controller.results);
 router.get("/exams/:examId/anti-cheat/export", controller.antiCheatExport);
 export default router;
+

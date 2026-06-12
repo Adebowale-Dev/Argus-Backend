@@ -1,4 +1,4 @@
-import { User } from "../users/user.model.js";
+﻿import { User } from "../users/user.model.js";
 import { ApiError } from "../../utils/ApiError.js";
 import { generateAccessToken, generateRefreshToken, hashToken, randomToken, verifyRefreshToken } from "../../utils/generateToken.js";
 import { sendPasswordResetEmail } from "../../emails/email.service.js";
@@ -76,7 +76,6 @@ export const changePassword = async (userId, { currentPassword, newPassword }) =
   user.password = newPassword;
   user.passwordChangedAt = new Date();
   user.mustChangePassword = false;
-  user.refreshTokenHash = undefined;
   await user.save();
 };
 
@@ -100,3 +99,4 @@ export const registerExaminer = async (req, payload) => {
   await recordAudit({ ...req, user }, "EXAMINER_REGISTERED", "User", user._id, "Examiner self-registration completed");
   return publicUser(user);
 };
+

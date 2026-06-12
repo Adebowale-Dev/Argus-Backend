@@ -1,4 +1,4 @@
-import { env } from "../config/env.js";
+﻿import { env } from "../config/env.js";
 import { brevoClient, sender } from "../config/brevo.js";
 import { logger } from "../middlewares/requestLogger.middleware.js";
 import { renderEmail } from "./email.renderer.js";
@@ -60,6 +60,23 @@ export const sendExamAssignedEmail = (user, exam, extra = {}) => send(user.email
 export const sendExamInviteEmail = (candidate, exam, extra = {}) => send(candidate.email, `You have been invited to ${exam.title}`, "exam-assigned", buildExamEmailPayload(candidate, exam, { invitationType: "verified-invite", ...extra }));
 export const sendExamStartReminderEmail = (user, exam) => send(user.email, `Reminder: ${exam.title} starts soon`, "exam-start-reminder", { ...user.toObject?.() ?? user, examTitle: exam.title, startTime: exam.startTime });
 export const sendExamSubmittedEmail = (user, exam, attempt) => send(user.email, `Submission received: ${exam.title}`, "exam-submitted", { ...user.toObject?.() ?? user, examTitle: exam.title, submittedAt: attempt.submittedAt });
+export const sendExamResultEmail = (candidate, exam, attempt) => {
+  if (!candidate?.email) return Promise.resolve();
+  const resultReleased = Boolean(exam.showResultImmediately);
+  const submissionLabel = attempt.submissionType === "MANUAL" ? "Submitted by candidate" : attempt.submissionType === "TIMER_EXPIRED" ? "Submitted when time expired" : attempt.submissionType === "ANTI_CHEAT_AUTO_SUBMIT" ? "Automatically submitted by anti-cheat" : "Automatically submitted";
+  return send(candidate.email, resultReleased ? `Your result: ${exam.title}` : `Submission received: ${exam.title}`, "exam-result", {
+    ...candidate.toObject?.() ?? candidate,
+    examTitle: exam.title,
+    submittedAt: formatDateTime(attempt.submittedAt),
+    resultHeadline: resultReleased ? (attempt.passed ? "You passed" : "Result recorded") : "Result pending examiner release",
+    resultMessage: resultReleased ? "Your examination has been graded successfully. Your score summary is shown below." : "Your examination has been submitted and graded securely. The examiner has chosen to release results later.",
+    scoreText: resultReleased ? `${attempt.score} / ${attempt.totalMarks}` : "Pending",
+    percentageText: resultReleased ? `${attempt.percentage}%` : "Pending",
+    outcomeText: resultReleased ? (attempt.passed ? "PASS" : "FAIL") : "PENDING",
+    submissionLabel,
+    integrityMessage: attempt.status === "AUTO_SUBMITTED" ? `This attempt was automatically submitted. ${attempt.autoSubmitReason || "Please contact your examiner if you need clarification."}` : "No automatic submission was triggered.",
+  });
+};
 export const sendAutoSubmitAlertEmail = (examiner, candidate, exam, reason) => send(examiner.email, `Auto-submit alert: ${exam.title}`, "auto-submit-alert", { fullName: examiner.fullName, candidateName: candidate.fullName, examTitle: exam.title, reason });
 export const sendExamPublishedEmail = (examiner, exam, publicUrl, accessCode) => send(examiner.email, `Exam published: ${exam.title}`, "exam-published", { fullName: examiner.fullName, examTitle: exam.title, publicUrl, accessCode });
 export const sendExamLinkGeneratedEmail = (examiner, exam, publicUrl) => send(examiner.email, `New exam link: ${exam.title}`, "exam-link-generated", { fullName: examiner.fullName, examTitle: exam.title, publicUrl });
@@ -67,3 +84,4 @@ export const sendExamAccessCodeRegeneratedEmail = (examiner, exam, accessCode) =
 export const sendExamStartConfirmationEmail = (candidateProfile, exam) => candidateProfile.email && send(candidateProfile.email, `Exam started: ${exam.title}`, "exam-start-confirmation", { fullName: candidateProfile.fullName, examTitle: exam.title });
 export const sendSuspiciousActivityAlertEmail = (examiner, candidateProfile, exam, event) => send(examiner.email, `Suspicious activity: ${exam.title}`, "suspicious-activity-alert", { fullName: examiner.fullName, candidateName: candidateProfile.fullName, examTitle: exam.title, eventType: event.eventType });
 export const sendAccountBlockedEmail = (user, reason) => send(user.email, "Your ARGUS account has been blocked", "account-blocked", { ...user.toObject?.() ?? user, reason });
+

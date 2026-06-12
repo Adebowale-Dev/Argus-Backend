@@ -1,4 +1,4 @@
-import mongoose from "mongoose";
+﻿import mongoose from "mongoose";
 import { ATTEMPT_STATUSES, SUBMISSION_TYPES } from "../../constants/statuses.js";
 
 const answerSchema = new mongoose.Schema({ question: { type: mongoose.Schema.Types.ObjectId, ref: "Question" }, answer: [String], savedAt: Date }, { _id: false });
@@ -18,8 +18,13 @@ const schema = new mongoose.Schema({
   attemptTokenHash: { type: String, select: false },
   publicAccessVerifiedAt: Date,
   lastHeartbeatAt: Date, currentQuestionIndex: { type: Number, default: 0 },
-  submissionType: { type: String, enum: SUBMISSION_TYPES }
+  submissionType: { type: String, enum: SUBMISSION_TYPES },
+  retakeGrantedAt: Date,
+  retakeGrantedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+  retakeGrantReason: String
 }, { timestamps: true });
 
 schema.index({ exam: 1, candidate: 1, status: 1 });
 export const ExamAttempt = mongoose.model("ExamAttempt", schema);
+
+

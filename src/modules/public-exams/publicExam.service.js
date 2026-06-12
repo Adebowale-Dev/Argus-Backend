@@ -1,4 +1,4 @@
-import { Exam } from "../exams/exam.model.js";
+﻿import { Exam } from "../exams/exam.model.js";
 import { ExamAttempt } from "../attempts/attempt.model.js";
 import { CandidateProfile } from "../candidates/candidateProfile.model.js";
 import { ExamInvite } from "../exam-invites/examInvite.model.js";
@@ -145,6 +145,18 @@ export const verifyEmailOtp = async (req, slug, { email, otp }) => {
   return { emailVerificationToken: generateEmailVerificationToken({ examId: exam._id, inviteId: invite._id, email: invite.email }), email: invite.email, verifiedAt: invite.verifiedAt };
 };
 
+const resumePublicAttempt = async (attempt, exam, candidateProfile) => {
+  const questionsById = new Map(exam.questions.map((question) => [String(question._id), question]));
+  const questions = attempt.presentation.map((state) => {
+    const question = questionsById.get(String(state.question));
+    return { id: question.id, questionText: question.questionText, questionType: question.questionType, options: state.optionOrder.map((key) => question.options.find((option) => option.key === key)), marks: question.marks };
+  });
+  const attemptToken = generateAttemptToken(attempt);
+  attempt.attemptTokenHash = hashToken(attemptToken);
+  attempt.lastHeartbeatAt = new Date();
+  await attempt.save();
+  return { attempt: { id: attempt.id, startedAt: attempt.startedAt, expiresAt: attempt.expiresAt, status: attempt.status, answers: attempt.answers }, attemptToken, candidateProfile, exam: { id: exam.id, title: exam.title, durationMinutes: exam.durationMinutes, expiresAt: attempt.expiresAt, antiCheatSettings: exam.antiCheatSettings }, questions, resumed: true };
+};
 export const start = async (req, slug, input) => {
   const verifiedPayload = input.emailVerificationToken ? verifyEmailVerificationToken(input.emailVerificationToken) : null;
   const examId = verifiedPayload?.exam;
@@ -177,10 +189,9 @@ export const start = async (req, slug, input) => {
     ? { email: candidatePayload.email, identifier: candidatePayload.identifier }
     : { identifier: candidatePayload.identifier, fullName: candidatePayload.fullName };
   const candidateProfile = await CandidateProfile.findOneAndUpdate(profileFilter, candidatePayload, { new: true, upsert: true, setDefaultsOnInsert: true });
-  const duplicateFilter = { exam: exam._id, candidateProfile: candidateProfile._id, status: "IN_PROGRESS" };
-  if (input.browserFingerprint) duplicateFilter.browserFingerprint = input.browserFingerprint;
-  if (await ExamAttempt.exists(duplicateFilter)) throw new ApiError(409, "An active attempt already exists for this exam.");
-  const completed = await ExamAttempt.countDocuments({ exam: exam._id, candidateProfile: candidateProfile._id, status: { $in: ["SUBMITTED", "AUTO_SUBMITTED"] } });
+  const activeAttempt = await ExamAttempt.findOne({ exam: exam._id, candidateProfile: candidateProfile._id, status: "IN_PROGRESS" }).select("+attemptTokenHash");
+  if (activeAttempt) return resumePublicAttempt(activeAttempt, exam, candidateProfile);
+  const completed = await ExamAttempt.countDocuments({ exam: exam._id, candidateProfile: candidateProfile._id, $or: [{ status: "SUBMITTED" }, { status: "AUTO_SUBMITTED", retakeGrantedAt: { $exists: false } }] });
   if (completed >= (exam.maxAttemptsPerCandidate || exam.maxAttempts || 1)) throw new ApiError(409, "Maximum attempts reached.");
   const now = new Date();
   const expiryLimit = exam.endTime ? exam.endTime.getTime() : Number.MAX_SAFE_INTEGER;
@@ -222,3 +233,4 @@ export const start = async (req, slug, input) => {
     questions,
   };
 };
+

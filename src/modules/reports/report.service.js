@@ -48,3 +48,27 @@ export const antiCheatCsv = async (user, examId) => {
   const logs = await AntiCheatLog.find({ exam: examId }).populate("candidate", "fullName email").populate("candidateProfile", "fullName email");
   return csv(logs.map((log) => ({ candidate: log.candidateProfile?.fullName || log.candidate?.fullName, email: log.candidateProfile?.email || log.candidate?.email, eventType: log.eventType, severity: log.severity, points: log.points, action: log.systemAction, occurredAt: log.createdAt })));
 };
+
+export const examinerOverview = async (user) => {
+  if (user.role !== ROLES.EXAMINER) throw new ApiError(403, "Examiner reporting access required.");
+  const exams = await Exam.find({ createdBy: user._id }).select("title code status totalMarks passMark createdAt publishedAt").sort({ createdAt: -1 });
+  const examIds = exams.map((exam) => exam._id);
+  const [attempts, integrityByExam] = await Promise.all([
+    ExamAttempt.find({ exam: { $in: examIds } }).populate("candidate", "fullName email").populate("candidateProfile", "fullName email").sort({ updatedAt: -1 }),
+    AntiCheatLog.aggregate([{ $match: { exam: { $in: examIds } } }, { $group: { _id: "$exam", events: { $sum: 1 }, points: { $sum: "$points" }, critical: { $sum: { $cond: [{ $eq: ["$severity", "CRITICAL"] }, 1, 0] } } } }]),
+  ]);
+  const integrityMap = new Map(integrityByExam.map((item) => [String(item._id), item]));
+  const completed = attempts.filter((attempt) => ["SUBMITTED", "AUTO_SUBMITTED"].includes(attempt.status));
+  const passed = completed.filter((attempt) => attempt.passed).length;
+  const examRows = exams.map((exam) => {
+    const scoped = attempts.filter((attempt) => String(attempt.exam) === String(exam._id));
+    const finished = scoped.filter((attempt) => ["SUBMITTED", "AUTO_SUBMITTED"].includes(attempt.status));
+    const integrity = integrityMap.get(String(exam._id)) || {};
+    return { id: exam.id, title: exam.title, code: exam.code, status: exam.status, attempts: scoped.length, completed: finished.length, autoSubmitted: finished.filter((attempt) => attempt.status === "AUTO_SUBMITTED").length, averageScore: finished.length ? Number((finished.reduce((sum, attempt) => sum + (attempt.percentage || 0), 0) / finished.length).toFixed(1)) : 0, passRate: finished.length ? Number(((finished.filter((attempt) => attempt.passed).length / finished.length) * 100).toFixed(1)) : 0, integrityEvents: integrity.events || 0, criticalEvents: integrity.critical || 0, createdAt: exam.createdAt };
+  });
+  return {
+    summary: { totalExams: exams.length, totalAttempts: attempts.length, completedAttempts: completed.length, inProgressAttempts: attempts.filter((attempt) => attempt.status === "IN_PROGRESS").length, autoSubmittedAttempts: completed.filter((attempt) => attempt.status === "AUTO_SUBMITTED").length, overallPassRate: completed.length ? Number(((passed / completed.length) * 100).toFixed(1)) : 0, integrityEvents: integrityByExam.reduce((sum, item) => sum + item.events, 0) },
+    exams: examRows,
+    recentSubmissions: completed.slice(0, 8).map((attempt) => ({ id: attempt.id, examId: String(attempt.exam), candidate: attempt.candidateProfile?.fullName || attempt.candidate?.fullName || "Candidate", email: attempt.candidateProfile?.email || attempt.candidate?.email || "", status: attempt.status, percentage: attempt.percentage, passed: attempt.passed, violationScore: attempt.violationScore, submittedAt: attempt.submittedAt })),
+  };
+};

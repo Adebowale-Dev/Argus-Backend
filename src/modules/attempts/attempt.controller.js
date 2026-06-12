@@ -10,3 +10,4 @@ export const save = asyncHandler(async (req, res) => res.json(new ApiResponse("A
 export const heartbeat = asyncHandler(async (req, res) => res.json(new ApiResponse("Heartbeat recorded.", await service.heartbeat(req, req.params.attemptId, req.body))));
 export const submit = asyncHandler(async (req, res) => res.json(new ApiResponse("Attempt submitted.", await service.submit(req, req.params.attemptId, req.body))));
 export const result = asyncHandler(async (req, res) => res.json(new ApiResponse("Attempt result retrieved.", await service.result(req, req.params.attemptId))));
+export const grantRetake = asyncHandler(async (req, res) => res.json(new ApiResponse("Retake granted.", await service.grantRetake(req, req.params.attemptId, req.body?.reason))));

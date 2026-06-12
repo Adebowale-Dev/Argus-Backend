@@ -1,4 +1,4 @@
-import { Router } from "express";
+﻿import { Router } from "express";
 import * as controller from "./attempt.controller.js";
 import { authenticate } from "../../middlewares/auth.middleware.js";
 import { optionalAuthenticate } from "../../middlewares/optionalAuth.middleware.js";
@@ -11,9 +11,11 @@ router.get("/attempts", authenticate, authorizeRoles(ROLES.SUPER_ADMIN, ROLES.SU
 router.get("/candidate/exams", authenticate, authorizeRoles(ROLES.CANDIDATE), controller.candidateExams);
 router.get("/candidate/exams/:examId/instructions", authenticate, authorizeRoles(ROLES.CANDIDATE), controller.instructions);
 router.post("/exams/:examId/start", authenticate, authorizeRoles(ROLES.CANDIDATE), validate({ body: startSchema }), controller.start);
+router.post("/attempts/:attemptId/grant-retake", authenticate, authorizeRoles(ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN, ROLES.EXAMINER), controller.grantRetake);
 router.get("/attempts/:attemptId", optionalAuthenticate, controller.get);
 router.post("/attempts/:attemptId/save-answer", optionalAuthenticate, validate({ body: answerSchema }), controller.save);
 router.post("/attempts/:attemptId/heartbeat", optionalAuthenticate, validate({ body: heartbeatSchema }), controller.heartbeat);
 router.post("/attempts/:attemptId/submit", optionalAuthenticate, validate({ body: submitSchema }), controller.submit);
 router.get("/attempts/:attemptId/result", optionalAuthenticate, controller.result);
 export default router;
+

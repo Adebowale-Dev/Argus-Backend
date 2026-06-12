@@ -1,4 +1,4 @@
-import { ExamAttempt } from "./attempt.model.js";
+﻿import { ExamAttempt } from "./attempt.model.js";
 import { Exam } from "../exams/exam.model.js";
 import { Question } from "../question-bank/question.model.js";
 import { ExamInvite } from "../exam-invites/examInvite.model.js";
@@ -7,7 +7,8 @@ import { PERMISSIONS } from "../../constants/permissions.js";
 import { ApiError } from "../../utils/ApiError.js";
 import { scheduleExpiry } from "../../config/queue.js";
 import { recordAudit } from "../audit-logs/auditLog.service.js";
-import { sendExamSubmittedEmail } from "../../emails/email.service.js";
+import { sendExamResultEmail } from "../../emails/email.service.js";
+import { User } from "../users/user.model.js";
 import { emitExamEvent } from "../../sockets/emitter.js";
 import { paginationMeta, paginationParams } from "../../utils/pagination.js";
 import { hashToken, verifyAttemptToken } from "../../utils/generateToken.js";
@@ -100,8 +101,9 @@ export const start = async (req, examId, input) => {
   const now = new Date();
   const exam = await Exam.findOne({ _id: examId, assignedCandidates: req.user._id, status: { $in: ["PUBLISHED", "SCHEDULED", "ACTIVE"] } }).populate("questions");
   if (!exam || !isAssignedExamOpen(exam, now)) throw new ApiError(403, "Exam is not currently available.");
-  if (await ExamAttempt.exists({ exam: exam._id, candidate: req.user._id, status: "IN_PROGRESS" })) throw new ApiError(409, "An active attempt already exists.");
-  const attempts = await ExamAttempt.countDocuments({ exam: exam._id, candidate: req.user._id, status: { $in: ["SUBMITTED", "AUTO_SUBMITTED"] } });
+  const activeAttempt = await ExamAttempt.findOne({ exam: exam._id, candidate: req.user._id, status: "IN_PROGRESS" });
+  if (activeAttempt) return { attempt: activeAttempt, questions: await presentExam(activeAttempt), exam: { id: exam.id, title: exam.title, expiresAt: activeAttempt.expiresAt, antiCheatSettings: exam.antiCheatSettings }, resumed: true };
+  const attempts = await ExamAttempt.countDocuments({ exam: exam._id, candidate: req.user._id,  $or: [{ status: "SUBMITTED" }, { status: "AUTO_SUBMITTED", retakeGrantedAt: { $exists: false } }] });
   if (attempts >= exam.maxAttempts) throw new ApiError(409, "Maximum attempts reached.");
   const ordered = exam.randomizeQuestions ? shuffle(exam.questions) : exam.questions;
   const presentation = ordered.map((question) => ({ question: question._id, optionOrder: (exam.randomizeOptions ? shuffle(question.options) : question.options).map((option) => option.key) }));
@@ -171,7 +173,7 @@ export const finalizeAttempt = async (req, id, submissionType, reason, suppliedA
     passed: score >= exam.passMark, autoSubmitReason: reason
   }, { new: true });
   if (!updated) return ExamAttempt.findById(id);
-  const populatedAttempt = updated.candidateProfile ? await updated.populate("candidateProfile", "email") : updated;
+  const populatedAttempt = updated.candidateProfile ? await updated.populate("candidateProfile", "fullName email") : updated;
   if (populatedAttempt.candidateProfile?.email) {
     await ExamInvite.findOneAndUpdate(
       { exam: exam._id, email: populatedAttempt.candidateProfile.email.toLowerCase() },
@@ -179,8 +181,8 @@ export const finalizeAttempt = async (req, id, submissionType, reason, suppliedA
     );
   }
   if (req?.user) await recordAudit(req, status === "SUBMITTED" ? "ATTEMPT_SUBMITTED" : "ATTEMPT_AUTO_SUBMITTED", "ExamAttempt", updated._id, reason || "Attempt submitted");
-  const candidate = req?.user?.role === ROLES.CANDIDATE ? req.user : null;
-  if (candidate && status === "SUBMITTED") await sendExamSubmittedEmail(candidate, exam, updated);
+  const candidate = populatedAttempt.candidateProfile || (updated.candidateUser ? await User.findById(updated.candidateUser).select("fullName email") : null) || (req?.user?.role === ROLES.CANDIDATE ? req.user : null);
+  if (candidate?.email) await sendExamResultEmail(candidate, exam, updated);
   emitExamEvent(exam.id, status === "SUBMITTED" ? "exam:candidate-submitted" : "exam:candidate-auto-submitted", { attemptId: updated.id, candidateId: String(updated.candidate || updated.candidateProfile), reason });
   return updated;
 };
@@ -195,3 +197,22 @@ export const result = async (req, id) => {
   if (!exam.showResultImmediately) return { pending: true, message: "Result is pending examiner review." };
   return { score: attempt.score, totalMarks: attempt.totalMarks, percentage: attempt.percentage, passed: attempt.passed, status: attempt.status };
 };
+
+
+
+export const grantRetake = async (req, id, reason) => {
+  const attempt = await ExamAttempt.findOne({ _id: id, status: "AUTO_SUBMITTED" }).populate("candidateProfile", "email");
+  if (!attempt) throw new ApiError(404, "Auto-submitted attempt not found.");
+  const exam = await Exam.findById(attempt.exam);
+  if (!exam) throw new ApiError(404, "Exam not found.");
+  if (req.user.role === ROLES.EXAMINER && String(exam.createdBy) !== String(req.user._id) && String(exam.owner) !== String(req.user._id)) throw new ApiError(403, "You can only grant retakes for your own exams.");
+  if (attempt.retakeGrantedAt) throw new ApiError(409, "A retake has already been granted for this attempt.");
+  attempt.retakeGrantedAt = new Date();
+  attempt.retakeGrantedBy = req.user._id;
+  attempt.retakeGrantReason = reason || "Retake approved after examiner review.";
+  await attempt.save();
+  if (attempt.candidateProfile?.email) await ExamInvite.findOneAndUpdate({ exam: exam._id, email: attempt.candidateProfile.email.toLowerCase() }, { status: "APPROVED", consumedAt: null, startedAt: null });
+  await recordAudit(req, "ATTEMPT_RETAKE_GRANTED", "ExamAttempt", attempt._id, "Granted candidate a fresh retake", { reason: attempt.retakeGrantReason });
+  return attempt;
+};
+
