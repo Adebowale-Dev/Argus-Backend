@@ -34,6 +34,7 @@
     "socket.io": "^4.8.1",
     "swagger-jsdoc": "^6.2.8",
     "swagger-ui-express": "^5.0.1",
+    "yauzl": "^3.3.1",
     "zod": "^4.0.5"
   },
   "devDependencies": {

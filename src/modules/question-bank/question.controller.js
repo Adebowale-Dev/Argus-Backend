@@ -10,8 +10,8 @@ export const previewBulkImport = asyncHandler(async (req, res) => res.json(new A
 export const bulkImport = asyncHandler(async (req, res) => res.status(201).json(new ApiResponse("Questions imported.", await service.bulkImport(req))));
 export const clone = asyncHandler(async (req, res) => res.status(201).json(new ApiResponse("Questions copied into the selected bank.", await service.cloneQuestions(req, req.body))));
 export const template = asyncHandler(async (_req, res) => {
-  res.setHeader("Content-Type", "text/csv; charset=utf-8");
-  res.setHeader("Content-Disposition", "attachment; filename=\"argus-question-import-template.csv\"");
-  res.status(200).send(service.importTemplate());
+  res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+  res.setHeader("Content-Disposition", "attachment; filename=\"argus-question-import-template.docx\"");
+  res.status(200).send(service.importTemplateDocx());
 });
 export const attachment = asyncHandler(async (req, res) => res.status(201).json(new ApiResponse("Attachment uploaded.", await service.addAttachment(req, req.params.id, req.file))));
