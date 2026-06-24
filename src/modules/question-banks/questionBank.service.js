@@ -1,5 +1,6 @@
 import { QuestionBank } from "./questionBank.model.js";
 import { Question } from "../question-bank/question.model.js";
+import { Exam } from "../exams/exam.model.js";
 import { ROLES } from "../../constants/roles.js";
 import { ApiError } from "../../utils/ApiError.js";
 import { paginationMeta, paginationParams } from "../../utils/pagination.js";
@@ -55,6 +56,20 @@ export const remove = async (req, id) => {
   if (!bank) throw new ApiError(404, "Question bank not found.");
   await recordAudit(req, "QUESTION_BANK_ARCHIVED", "QuestionBank", bank._id, "Archived question bank");
   return bank;
+};
+
+export const hardDelete = async (req, id) => {
+  const bank = await QuestionBank.findOne({ _id: id, ...scope(req.user) });
+  if (!bank) throw new ApiError(404, "Question bank not found.");
+  const linkedExams = await Exam.find({ questionBank: bank._id }).select("title").limit(5);
+  if (linkedExams.length) {
+    const names = linkedExams.map((exam) => exam.title).join(", ");
+    throw new ApiError(409, `This question bank is still referenced by ${names}. Unpublishing or archiving keeps the exam data; permanently delete those exams first.`);
+  }
+  const result = await Question.deleteMany({ questionBank: bank._id, ...scope(req.user) });
+  await QuestionBank.deleteOne({ _id: bank._id });
+  await recordAudit(req, "QUESTION_BANK_DELETED", "QuestionBank", bank._id, "Permanently deleted question bank");
+  return { questionBankId: id, title: bank.title, deletedQuestions: result.deletedCount };
 };
 
 export const questions = async (user, id, query) => {

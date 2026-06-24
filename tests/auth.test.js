@@ -30,4 +30,13 @@ describe("authentication", () => {
     await User.updateOne({ email: "admin@gmail.com" }, { status: "BLOCKED" });
     await request(app).post("/api/v1/auth/login").send({ email: "admin@gmail.com", password: "123456789" }).expect(403);
   });
+  test("isolates failed-login limits by identifier", async () => {
+    const target = "rate-limit-target@gmail.com";
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      await request(app).post("/api/v1/auth/login").send({ email: target, password: "incorrect-password" }).expect(401);
+    }
+
+    await request(app).post("/api/v1/auth/login").send({ email: target, password: "incorrect-password" }).expect(429);
+    await request(app).post("/api/v1/auth/login").send({ email: "different-user@gmail.com", password: "incorrect-password" }).expect(401);
+  });
 });

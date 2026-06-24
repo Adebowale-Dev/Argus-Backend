@@ -1,5 +1,6 @@
 import Papa from "papaparse";
-import yauzl from "yauzl";
+import mammoth from "mammoth";
+import * as XLSX from "xlsx";
 import { Question } from "./question.model.js";
 import { QuestionBank } from "../question-banks/questionBank.model.js";
 import { ROLES } from "../../constants/roles.js";
@@ -21,20 +22,38 @@ const parseJsonArray = (value, fallback = []) => {
   }
 };
 
-const parseTags = (value) => {
-  if (Array.isArray(value)) return value.map((tag) => String(tag).trim()).filter(Boolean);
+const parseAnswerKeys = (value) => {
+  const parsed = parseJsonArray(value, null);
+  if (parsed) return parsed.map((key) => String(key).trim().toUpperCase()).filter(Boolean);
   if (typeof value !== "string") return [];
-  return value.split(",").map((tag) => tag.trim()).filter(Boolean);
+  return value.split(/[,;|]/).map((key) => key.trim().toUpperCase()).filter(Boolean);
 };
 
-const normalizeAnswerKeys = (value) => {
-  if (Array.isArray(value)) return value.map((item) => String(item).trim().toUpperCase()).filter(Boolean);
-  if (typeof value !== "string") return [];
-  const trimmed = value.trim();
-  if (!trimmed) return [];
-  const parsed = parseJsonArray(trimmed, null);
-  if (Array.isArray(parsed)) return normalizeAnswerKeys(parsed);
-  return trimmed.split(/[,;|]/).map((item) => item.trim().toUpperCase()).filter(Boolean);
+const firstValue = (row, keys) => {
+  for (const key of keys) {
+    const value = row[key];
+    if (value != null && String(value).trim()) return value;
+  }
+  return undefined;
+};
+
+const parseOptions = (row, questionType) => {
+  const parsed = parseJsonArray(row.options, null);
+  if (parsed) return parsed;
+  if (questionType === "TRUE_FALSE") return [{ key: "A", text: "True" }, { key: "B", text: "False" }];
+  return ["A", "B", "C", "D", "E", "F"]
+    .map((key, index) => ({
+      key,
+      text: String(firstValue(row, [
+        `option${key}`,
+        `option${key.toLowerCase()}`,
+        `option_${key}`,
+        `option_${key.toLowerCase()}`,
+        `option${index + 1}`,
+        `option_${index + 1}`,
+      ]) || "").trim(),
+    }))
+    .filter((option) => option.text);
 };
 
 const normalizeQuestionType = (value) => {
@@ -46,164 +65,150 @@ const normalizeQuestionType = (value) => {
   return normalized;
 };
 
-const optionsFromColumns = (row) => ["A", "B", "C", "D", "E", "F"]
-  .map((key) => ({ key, text: row[`option${key}`] || row[`option${key.toLowerCase()}`] || row[key] || row[key.toLowerCase()] }))
-  .filter((option) => typeof option.text === "string" && option.text.trim())
-  .map((option) => ({ key: option.key, text: option.text.trim() }));
+const parseTags = (value) => {
+  if (Array.isArray(value)) return value.map((tag) => String(tag).trim()).filter(Boolean);
+  if (typeof value !== "string") return [];
+  return value.split(",").map((tag) => tag.trim()).filter(Boolean);
+};
 
 const normalizeCsvRow = (row) => ({
   ...row,
   questionBank: row.questionBank || row.questionbank || row.question_bank,
-  questionText: row.questionText || row.questiontext || row.question_text,
-  questionType: normalizeQuestionType(row.questionType || row.questiontype || row.question_type),
-  options: parseJsonArray(row.options, optionsFromColumns(row)),
-  correctAnswer: normalizeAnswerKeys(row.correctAnswer || row.correctanswer || row.correct_answer),
-  marks: row.marks,
+  questionText: firstValue(row, ["questionText", "questiontext", "question_text", "question"]),
+  questionType: normalizeQuestionType(firstValue(row, ["questionType", "questiontype", "question_type", "type"])),
+  options: parseOptions(row, normalizeQuestionType(firstValue(row, ["questionType", "questiontype", "question_type", "type"]))),
+  correctAnswer: parseAnswerKeys(firstValue(row, ["correctAnswer", "correctanswer", "correct_answer", "correct", "answer", "ans"])),
+  marks: firstValue(row, ["marks", "mark", "score"]) ?? row.marks,
   topic: row.topic,
   tags: parseTags(row.tags),
-  explanation: row.explanation,
+  explanation: firstValue(row, ["explanation", "rationale"]),
   status: row.status,
 });
 
-const streamToBuffer = (stream) => new Promise((resolve, reject) => {
-  const chunks = [];
-  stream.on("data", (chunk) => chunks.push(chunk));
-  stream.on("end", () => resolve(Buffer.concat(chunks)));
-  stream.on("error", reject);
-});
+const extensionOf = (file = {}) => String(file.originalname || "").toLowerCase().match(/\.[^.]+$/)?.[0] || "";
 
-const readDocxEntry = (buffer, entryName) => new Promise((resolve, reject) => {
-  yauzl.fromBuffer(buffer, { lazyEntries: true }, (zipError, zipfile) => {
-    if (zipError) return reject(zipError);
-    zipfile.readEntry();
-    zipfile.on("entry", (entry) => {
-      if (entry.fileName !== entryName) return zipfile.readEntry();
-      zipfile.openReadStream(entry, async (streamError, stream) => {
-        if (streamError) return reject(streamError);
-        try {
-          const entryBuffer = await streamToBuffer(stream);
-          zipfile.close();
-          resolve(entryBuffer.toString("utf8"));
-        } catch (error) {
-          reject(error);
-        }
-      });
-    });
-    zipfile.on("end", () => resolve(""));
-    zipfile.on("error", reject);
-  });
-});
+const normalizeDocumentText = (text) => text
+  .replace(/\r/g, "\n")
+  .replace(/\s+([A-F][).])\s+/g, "\n$1 ")
+  .replace(/\s+(Correct Answer|Answer|Ans|Marks|Score)\b\s*:?\s*/gi, "\n$1: ")
+  .replace(/\n{2,}/g, "\n");
 
-const decodeXmlEntities = (value) => value
-  .replace(/&lt;/g, "<")
-  .replace(/&gt;/g, ">")
-  .replace(/&amp;/g, "&")
-  .replace(/&quot;/g, "\"")
-  .replace(/&apos;/g, "'");
-
-const docxXmlToText = (xml) => decodeXmlEntities(
-  xml
-    .replace(/<w:tab\/>/g, "\t")
-    .replace(/<w:br\/>/g, "\n")
-    .replace(/<\/w:p>/g, "\n")
-    .replace(/<[^>]+>/g, ""),
-);
-
-const splitDocQuestionBlocks = (text) => {
-  const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+const splitDocumentBlocks = (text) => {
+  const lines = normalizeDocumentText(text).split(/\n/).map((line) => line.trim()).filter(Boolean);
   const blocks = [];
   let current = [];
   for (const line of lines) {
-    const startsQuestion = /^(?:\d+[).]\s*)?(?:question|q)\s*\d*\s*[:.)-]/i.test(line);
+    const startsQuestion = /^(?:question|q)\s*\d*[:.)-]/i.test(line) || /^\d+[).]\s+/.test(line);
     if (startsQuestion) {
       if (current.length) blocks.push(current);
       current = [line];
-      continue;
-    }
-    if (current.length) {
+    } else if (current.length) {
       current.push(line);
     }
   }
   if (current.length) blocks.push(current);
-  return blocks;
+  return blocks.length ? blocks : [lines];
 };
 
-const parseDocQuestionBlock = (lines, index) => {
+const optionsFromLine = (line) => {
+  const options = [];
+  const pattern = /(?:^|\s)([A-F])[).]\s*([\s\S]*?)(?=\s+[A-F][).]\s*|$)/gi;
+  for (const match of line.matchAll(pattern)) {
+    const text = match[2].trim();
+    if (text) options.push({ key: match[1].toUpperCase(), text });
+  }
+  return options;
+};
+
+const parseDocumentBlock = (lines) => {
   const row = { options: [], tags: [] };
-  const extraQuestionLines = [];
-  let currentTextField = null;
+  const questionLines = [];
+  let activeTextField = null;
+
   for (const line of lines) {
-    const optionMatch = line.match(/^([A-F])[).:-]\s*(.+)$/i);
-    const fieldMatch = line.match(/^(?:\d+[).]\s*)?(question|q|type|answer|correct answer|marks|mark|topic|tags|explanation)\s*\d*\s*[:.)-]\s*(.*)$/i);
-    if (optionMatch) {
-      row.options.push({ key: optionMatch[1].toUpperCase(), text: optionMatch[2].trim() });
-      currentTextField = null;
-    } else if (fieldMatch) {
-      const key = fieldMatch[1].toLowerCase();
-      const value = fieldMatch[2].trim();
-      currentTextField = null;
-      if (key === "question" || key === "q") {
+    const field = line.match(/^(?:question|q|type|correct answer|correct|answer|ans|marks|mark|score|topic|tags|explanation|rationale)\s*\d*\s*[:.)-]?\s*(.*)$/i);
+    const optionRows = optionsFromLine(line);
+
+    if (optionRows.length) {
+      row.options.push(...optionRows);
+      activeTextField = null;
+      continue;
+    }
+
+    if (field) {
+      const label = line.match(/^(question|q|type|correct answer|correct|answer|ans|marks|mark|score|topic|tags|explanation|rationale)/i)?.[1].toLowerCase();
+      const value = field[1].trim();
+      activeTextField = null;
+      if (label === "question" || label === "q") {
         row.questionText = value;
-        currentTextField = "questionText";
-      }
-      if (key === "type") row.questionType = normalizeQuestionType(value);
-      if (key === "answer" || key === "correct answer") row.correctAnswer = normalizeAnswerKeys(value);
-      if (key === "marks" || key === "mark") row.marks = value;
-      if (key === "topic") row.topic = value;
-      if (key === "tags") row.tags = parseTags(value);
-      if (key === "explanation") {
+        activeTextField = "questionText";
+      } else if (label === "type") {
+        row.questionType = normalizeQuestionType(value);
+      } else if (["correct answer", "correct", "answer", "ans"].includes(label)) {
+        row.correctAnswer = parseAnswerKeys(value);
+      } else if (["marks", "mark", "score"].includes(label)) {
+        row.marks = value;
+      } else if (label === "topic") {
+        row.topic = value;
+      } else if (label === "tags") {
+        row.tags = parseTags(value);
+      } else if (label === "explanation" || label === "rationale") {
         row.explanation = value;
-        currentTextField = "explanation";
+        activeTextField = "explanation";
       }
-    } else if (!row.questionText) {
-      extraQuestionLines.push(line.replace(/^\d+[).]\s*/, ""));
-    } else if (currentTextField) {
-      row[currentTextField] = `${row[currentTextField]} ${line}`.trim();
+      continue;
+    }
+
+    if (!row.questionText) {
+      questionLines.push(line.replace(/^\d+[).]\s*/, ""));
+    } else if (activeTextField) {
+      row[activeTextField] = `${row[activeTextField]} ${line}`.trim();
     }
   }
-  if (!row.questionText && extraQuestionLines.length) row.questionText = extraQuestionLines.join(" ");
+
+  if (!row.questionText && questionLines.length) row.questionText = questionLines.join(" ");
+  if (!row.marks) row.marks = 1;
   if (row.questionType === "TRUE_FALSE" && row.options.length === 0) {
     row.options = [{ key: "A", text: "True" }, { key: "B", text: "False" }];
   }
-  if (!row.marks) row.marks = 1;
+  const optionTextLookup = new Map(row.options.map((option) => [option.text.toLowerCase(), option.key]));
+  row.correctAnswer = (row.correctAnswer ?? []).map((answer) => optionTextLookup.get(answer.toLowerCase()) ?? answer);
   if (row.options.length === 0 && /^(true|false)$/i.test(String(row.correctAnswer?.[0] ?? ""))) {
     row.options = [{ key: "A", text: "True" }, { key: "B", text: "False" }];
     row.correctAnswer = [/^true$/i.test(row.correctAnswer[0]) ? "A" : "B"];
   }
-  const optionTextLookup = new Map(row.options.map((option) => [option.text.toLowerCase(), option.key]));
-  row.correctAnswer = (row.correctAnswer ?? []).map((answer) => optionTextLookup.get(answer.toLowerCase()) ?? answer);
   if (!row.questionType) {
     const trueFalse = row.options.length === 2 && row.options.every((option) => /^(true|false)$/i.test(option.text));
-    row.questionType = trueFalse ? "TRUE_FALSE" : row.correctAnswer.length > 1 ? "MULTIPLE_CHOICE" : "SINGLE_SELECT";
+    row.questionType = trueFalse ? "TRUE_FALSE" : row.correctAnswer?.length > 1 ? "MULTIPLE_CHOICE" : "SINGLE_SELECT";
   }
-  if (!row.questionText) throw new ApiError(400, "DOCX could not be parsed.", [{ row: index + 1, message: "Question text is required." }]);
   return row;
 };
 
+const parseDocumentTextRows = (text) => splitDocumentBlocks(text).map(parseDocumentBlock);
+
+const parseXlsxRows = (file) => {
+  const workbook = XLSX.read(file.buffer, { type: "buffer" });
+  const sheet = workbook.Sheets[workbook.SheetNames[0]];
+  return XLSX.utils.sheet_to_json(sheet, { defval: "" }).map((row) => normalizeCsvRow(row));
+};
+
 const parseDocxRows = async (file) => {
-  const xml = await readDocxEntry(file.buffer, "word/document.xml");
-  if (!xml) throw new ApiError(400, "DOCX could not be parsed.", [{ message: "The document body could not be read." }]);
-  const text = docxXmlToText(xml);
-  const rows = splitDocQuestionBlocks(text).map((block, index) => parseDocQuestionBlock(block, index));
-  if (!rows.length) throw new ApiError(400, "DOCX could not be parsed.", [{ message: "No question blocks were found." }]);
-  return rows;
+  const result = await mammoth.extractRawText({ buffer: file.buffer });
+  return parseDocumentTextRows(result.value);
 };
 
 const parseImportRows = async (req) => {
   let rows = req.body.questions;
   if (req.file) {
-    const filename = req.file.originalname.toLowerCase();
-    const isDocx = filename.endsWith(".docx") || req.file.mimetype === "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
-    if (filename.endsWith(".pdf") || req.file.mimetype === "application/pdf") {
-      throw new ApiError(400, "PDF import is not supported yet. Upload a DOCX document or a spreadsheet file.");
-    }
-    if (isDocx) {
-      rows = await parseDocxRows(req.file);
-    } else {
-      const parsed = Papa.parse(req.file.buffer.toString("utf8"), { header: true, skipEmptyLines: true });
-      if (parsed.errors.length) throw new ApiError(400, "CSV could not be parsed.", parsed.errors);
-      rows = parsed.data.map((row) => normalizeCsvRow(row));
-    }
+    const extension = extensionOf(req.file);
+    if (extension === ".doc") throw new ApiError(400, ".doc files are not supported. Save the document as .docx and upload again.");
+    if (extension === ".xlsx" || req.file.mimetype === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet") return parseXlsxRows(req.file);
+    if (extension === ".docx" || req.file.mimetype === "application/vnd.openxmlformats-officedocument.wordprocessingml.document") return parseDocxRows(req.file);
+    const text = req.file.buffer.toString("utf8");
+    if (extension === ".txt" || req.file.mimetype === "text/plain" || req.file.mimetype === "application/octet-stream") return parseDocumentTextRows(text);
+    const parsed = Papa.parse(text, { header: true, skipEmptyLines: true });
+    if (parsed.errors.length) throw new ApiError(400, "CSV could not be parsed.", parsed.errors);
+    rows = parsed.data.map((row) => normalizeCsvRow(row));
   }
   if (!Array.isArray(rows)) throw new ApiError(400, "Provide a CSV file or questions array.");
   return rows;
@@ -346,12 +351,10 @@ export const cloneQuestions = async (req, input) => {
 };
 
 export const importTemplate = () => [
-  "questionText,questionType,options,correctAnswer,marks,topic,tags,explanation",
-  "\"What does ARGUS primarily provide?\",SINGLE_SELECT,\"[{\"\"key\"\":\"\"A\"\",\"\"text\"\":\"\"A secure online exam platform\"\"},{\"\"key\"\":\"\"B\"\",\"\"text\"\":\"\"A social media dashboard\"\"},{\"\"key\"\":\"\"C\"\",\"\"text\"\":\"\"A file hosting service\"\"}]\",\"[\"\"A\"\"]\",1,Platform,\"argus,basics\",\"ARGUS is built for secure online examinations.\"",
-  "\"Which actions can trigger anti-cheat monitoring during an exam?\",MULTIPLE_CHOICE,\"[{\"\"key\"\":\"\"A\"\",\"\"text\"\":\"\"Tab switching\"\"},{\"\"key\"\":\"\"B\"\",\"\"text\"\":\"\"Fullscreen exit\"\"},{\"\"key\"\":\"\"C\"\",\"\"text\"\":\"\"Typing an answer\"\"},{\"\"key\"\":\"\"D\"\",\"\"text\"\":\"\"Copy attempt\"\"}]\",\"[\"\"A\"\",\"\"B\"\",\"\"D\"\"]\",3,Anti-Cheat,\"monitoring,integrity\",\"Tab switching, fullscreen exit, and copy attempts can all be monitored.\"",
-  "\"A candidate can submit an exam manually before the timer expires.\",TRUE_FALSE,\"[{\"\"key\"\":\"\"A\"\",\"\"text\"\":\"\"True\"\"},{\"\"key\"\":\"\"B\"\",\"\"text\"\":\"\"False\"\"}]\",\"[\"\"A\"\"]\",1,Attempts,\"candidate,submission\",\"Candidates may submit before time runs out unless the session is already closed.\"",
-  "\"Which field is commonly required before a public exam attempt starts?\",SINGLE_SELECT,\"[{\"\"key\"\":\"\"A\"\",\"\"text\"\":\"\"Favorite color\"\"},{\"\"key\"\":\"\"B\"\",\"\"text\"\":\"\"Candidate identity details\"\"},{\"\"key\"\":\"\"C\"\",\"\"text\"\":\"\"Operating system license key\"\"}]\",\"[\"\"B\"\"]\",2,Candidate Intake,\"identity,public-exam\",\"Public exam flows often collect identity details like name or email.\"",
-  "\"Select the valid examiner workflows in ARGUS.\",MULTIPLE_CHOICE,\"[{\"\"key\"\":\"\"A\"\",\"\"text\"\":\"\"Create a question bank\"\"},{\"\"key\"\":\"\"B\"\",\"\"text\"\":\"\"Publish an exam\"\"},{\"\"key\"\":\"\"C\"\",\"\"text\"\":\"\"View attempt reports\"\"},{\"\"key\"\":\"\"D\"\",\"\"text\"\":\"\"Promote users to super admin\"\"}]\",\"[\"\"A\"\",\"\"B\"\",\"\"C\"\"]\",4,Exam Management,\"examiner,workflow\",\"Examiners can create banks, publish exams, and review attempts, but cannot promote super admins.\"",
+  "questionType,questionText,optionA,optionB,optionC,optionD,correctAnswer,marks,topic,tags,explanation",
+  "SINGLE_SELECT,\"What does ARGUS primarily provide?\",\"A secure online exam platform\",\"A social media dashboard\",\"A file hosting service\",,A,1,Platform,\"argus,basics\",\"ARGUS is built for secure online examinations.\"",
+  "MULTIPLE_CHOICE,\"Which actions can trigger anti-cheat monitoring during an exam?\",\"Tab switching\",\"Fullscreen exit\",\"Typing an answer\",\"Copy attempt\",\"A,B,D\",3,Anti-Cheat,\"monitoring,integrity\",\"Tab switching, fullscreen exit, and copy attempts can all be monitored.\"",
+  "TRUE_FALSE,\"A candidate can submit an exam manually before the timer expires.\",,,,,A,1,Attempts,\"candidate,submission\",\"Candidates may submit before time runs out unless the session is already closed.\"",
 ].join("\n");
 
 const crcTable = Array.from({ length: 256 }, (_, n) => {

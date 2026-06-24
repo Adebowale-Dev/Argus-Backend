@@ -13,6 +13,7 @@ router.post("/", authorizeRoles(ROLES.EXAMINER), validate({ body: questionBankSc
 router.get("/:id", authorizeRoles(ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN, ROLES.EXAMINER), controller.get);
 router.patch("/:id", authorizeRoles(ROLES.EXAMINER), validate({ body: questionBankUpdateSchema }), controller.update);
 router.delete("/:id", authorizeRoles(ROLES.EXAMINER), controller.remove);
+router.delete("/:id/permanent", authorizeRoles(ROLES.EXAMINER), controller.hardDelete);
 router.get("/:id/questions", authorizeRoles(ROLES.SUPER_ADMIN, ROLES.SUB_ADMIN, ROLES.EXAMINER), controller.questions);
 
 export default router;
